@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.kimi.desktop"
-version = "0.5.1"
+version = "0.5.2"
 
 // 版本号唯一来源是上面的 version；此任务把它写进资源 version.properties，代码从 classpath 读取
 val generateVersionProperties = tasks.register("generateVersionProperties") {
@@ -67,7 +67,7 @@ compose.desktop {
             macOS {
                 bundleID = "com.kimi.desktop"
                 // macOS 包要求 MAJOR>0；语义版本 0.1 体现在最终 DMG 文件名上
-                packageVersion = "1.0.13"
+                packageVersion = "1.0.14"
                 iconFile.set(project.file("packaging/icon.icns"))
             }
         }

@@ -4,7 +4,8 @@ Kimi Code web 服务端的 iOS 客户端（SwiftUI，iOS 16+）。功能与 Andr
 
 ## 构建与部署
 
-- Xcode 15+（XcodeGen 生成工程文件：`xcodegen generate`，若 `.xcodeproj` 缺失或 `project.yml` 变更后）
+- Xcode 16.4（本机装在外接盘镜像 `/Volumes/Xcode`，**构建/部署时需保持挂载**）
+- 工程文件由 XcodeGen 生成：`xcodegen generate`（若 `.xcodeproj` 缺失）
 - 模拟器编译：`xcodebuild -project KimiMobile.xcodeproj -scheme KimiMobile -destination 'generic/platform=iOS Simulator' build`
 - 真机部署（免费 Apple ID，Personal Team 签名，7 天过期）：
 
@@ -16,4 +17,4 @@ Kimi Code web 服务端的 iOS 客户端（SwiftUI，iOS 16+）。功能与 Andr
 
 ## 协议要点
 
-见根目录 `docs/PROTOCOL-NOTES.md`。WS 认证在握手头；prompts 顶层带 model + 模式字段；幻影 user 消息不渲染。
+同 Android 版 README（docs 见 Android 仓库）。WS 认证在握手头；prompts 顶层带 model + 模式字段；幻影 user 消息不渲染。

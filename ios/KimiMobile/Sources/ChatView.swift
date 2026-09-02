@@ -383,6 +383,9 @@ struct QuestionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // 题目/选项区限高可滚动：内容多时底部按钮始终可达
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
             ForEach(item.questions) { q in
                 VStack(alignment: .leading, spacing: 6) {
                     if !q.header.isEmpty {
@@ -430,6 +433,9 @@ struct QuestionCard: View {
                     }
                 }
             }
+                }
+            }
+            .frame(maxHeight: 320)
             HStack(spacing: 10) {
                 Button("提交") { submit() }
                     .buttonStyle(.borderedProminent)

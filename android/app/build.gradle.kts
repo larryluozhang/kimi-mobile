@@ -20,8 +20,8 @@ android {
         applicationId = "com.kimi.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 16
-        versionName = "0.5.1"
+        versionCode = 17
+        versionName = "0.5.2"
     }
 
     buildFeatures {

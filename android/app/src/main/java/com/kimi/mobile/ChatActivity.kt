@@ -20,6 +20,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
@@ -260,9 +261,18 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
 
         val title = item.questions.firstOrNull()?.header?.takeIf { it.isNotEmpty() }
             ?: item.questions.firstOrNull()?.question?.takeIf { it.isNotEmpty() }
+        // 内容区限高可滚动：题目/选项多时底部按钮始终可达
+        val scroll = ScrollView(this).apply { addView(container) }
+        val maxH = (resources.displayMetrics.heightPixels * 0.6).toInt()
+        container.post {
+            scroll.layoutParams = scroll.layoutParams.apply {
+                height = if (container.height > maxH) maxH else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            scroll.requestLayout()
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (title.isNullOrEmpty()) "请回答问题" else title)
-            .setView(container)
+            .setView(scroll)
             .setPositiveButton("提交", null)
             .setNegativeButton("跳过") { _, _ ->
                 val answers = JSONObject()

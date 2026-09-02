@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -168,6 +171,12 @@ fun QuestionCard(state: AppState, scope: CoroutineScope, sessionId: String, item
                 .padding(12.dp)
         ) {
             Text("助手向你提问", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+            // 题目/选项区限高可滚动：内容多时底部提交按钮始终可达
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
             for (q in item.questions) {
                 Spacer(Modifier.height(6.dp))
                 if (q.header.isNotEmpty()) {
@@ -211,6 +220,7 @@ fun QuestionCard(state: AppState, scope: CoroutineScope, sessionId: String, item
                     )
                 }
             }
+            } // 可滚动题目区结束
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
