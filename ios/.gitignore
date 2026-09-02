@@ -1,0 +1,6 @@
+# 构建产物
+build/
+DerivedData/
+.DS_Store
+xcuserdata/
+*.xcuserstate

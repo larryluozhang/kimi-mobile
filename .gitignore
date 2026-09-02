@@ -1,0 +1,13 @@
+# 构建产物
+.gradle/
+build/
+app/build/
+.idea/
+.DS_Store
+xcuserdata/
+
+# 本地配置/密钥（勿入库）
+keystore.properties
+local.properties
+*.jks
+*.keystore

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 白色聊天气泡（圆角 + 左下小尾巴） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,34 h24 a12,12 0 0 1 12,12 v12 a12,12 0 0 1 -12,12 H50 l-10,9 1.5,-9 H42 a12,12 0 0 1 -12,-12 V46 a12,12 0 0 1 12,-12 z" />
+    <!-- 气泡内的字母 K -->
+    <path
+        android:fillColor="#5E5CE6"
+        android:pathData="M46.5,43.5 h3.6 v7.2 l7.5,-7.2 h4.6 l-8.2,7.8 8.6,8.2 h-4.8 l-6.8,-6.6 -0.9,0.9 v5.7 h-3.6 z" />
+</vector>
