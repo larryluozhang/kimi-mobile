@@ -18,3 +18,7 @@ Kimi Code web 服务端的 iOS 客户端（SwiftUI，iOS 16+）。功能与 Andr
 ## 协议要点
 
 同 Android 版 README（docs 见 Android 仓库）。WS 认证在握手头；prompts 顶层带 model + 模式字段；幻影 user 消息不渲染。
+
+## 离线语音模型
+
+同上（sherpa-onnx 流式双语模型，不入库）：解压后把四个文件放到 `KimiMobile/Resources/models/zipformer-bilingual/`，SwiftPM 依赖 sherpa-onnx 由 XcodeGen 自动解析。模型缺失时自动回退 SFSpeechRecognizer。

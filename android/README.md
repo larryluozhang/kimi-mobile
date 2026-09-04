@@ -25,3 +25,16 @@ keyPassword=<密码>
 - WS 认证在握手 HTTP 头；10s JSON ping 回同 nonce pong；流式为 transcript.ops 帧
 - POST prompts 顶层必须带 model；模式字段随 prompts 下发
 - 系统注入的 user 消息（<system-reminder> 等）不渲染
+
+## 离线语音模型
+
+语音识别用 sherpa-onnx 流式双语模型，不入库。构建前下载并放入 assets：
+
+```bash
+curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
+tar xjf sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
+mkdir -p app/src/main/assets/models/zipformer-bilingual
+cp sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/{encoder-epoch-99-avg-1.int8.onnx,decoder-epoch-99-avg-1.onnx,joiner-epoch-99-avg-1.int8.onnx,tokens.txt} app/src/main/assets/models/zipformer-bilingual/
+```
+
+同时将 sherpa-onnx AAR 放入 `app/libs/`（[releases](https://github.com/k2-fsa/sherpa-onnx/releases)）。模型缺失时自动回退系统识别器。
