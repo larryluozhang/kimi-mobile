@@ -20,8 +20,10 @@ android {
         applicationId = "com.kimi.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 17
-        versionName = "0.5.2"
+        versionCode = 18
+        versionName = "0.6.0"
+        // sherpa-onnx 原生库四 ABI 约 126MB；目标设备全是 arm64，只打 arm64-v8a
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     buildFeatures {
@@ -66,6 +68,8 @@ android {
 }
 
 dependencies {
+    // sherpa-onnx 离线语音识别（未发布到 Maven Central，用 GitHub releases 的本地 AAR）
+    implementation(files("libs/sherpa-onnx-1.13.7.aar"))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")

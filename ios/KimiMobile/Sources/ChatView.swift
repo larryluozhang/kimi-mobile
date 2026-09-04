@@ -4,6 +4,8 @@ import SwiftUI
 struct ChatView: View {
     @StateObject private var vm: ChatViewModel
     @StateObject private var speech = SpeechInput()
+    /// 离线识别引擎（sherpa-onnx）；voiceEngine=auto 且模型存在时优先
+    @StateObject private var speechOnnx = SpeechOnnx()
 
     @State private var input = ""
     @State private var showSpeechDeniedAlert = false
@@ -11,6 +13,9 @@ struct ChatView: View {
 
     private let store: ProfileStore
     private let voiceEnabled: Bool
+
+    /// 任一语音引擎录制中
+    private var anyRecording: Bool { speech.isRecording || speechOnnx.isRecording }
 
     init(store: ProfileStore, sessionId: String, sessionTitle: String) {
         self.store = store
@@ -63,6 +68,10 @@ struct ChatView: View {
         }
         .onChange(of: speech.partialText) { text in
             guard speech.isRecording || !text.isEmpty else { return }
+            input = text
+        }
+        .onChange(of: speechOnnx.partialText) { text in
+            guard speechOnnx.isRecording || !text.isEmpty else { return }
             input = text
         }
     }
@@ -146,11 +155,11 @@ struct ChatView: View {
         HStack(alignment: .bottom, spacing: 10) {
             if voiceEnabled {
                 Button(action: toggleVoice) {
-                    Image(systemName: speech.isRecording ? "mic.fill" : "mic")
+                    Image(systemName: anyRecording ? "mic.fill" : "mic")
                         .font(.title3)
-                        .foregroundColor(speech.isRecording ? .white : Theme.primary)
+                        .foregroundColor(anyRecording ? .white : Theme.primary)
                         .padding(8)
-                        .background(speech.isRecording ? Theme.error : Color.clear)
+                        .background(anyRecording ? Theme.error : Color.clear)
                         .clipShape(Circle())
                 }
             }
@@ -196,15 +205,34 @@ struct ChatView: View {
         let text = input
         input = ""
         if speech.isRecording { speech.stop() }
+        if speechOnnx.isRecording { speechOnnx.stop() }
         vm.send(text)
     }
 
     private func toggleVoice() {
-        if speech.isRecording {
-            speech.stop()
-            return
-        }
+        if speech.isRecording { speech.stop(); return }
+        if speechOnnx.isRecording { speechOnnx.stop(); return }
         Task {
+            let engine = store.voiceEngine
+            // 离线优先：auto/onnx 且模型在 bundle 中时走 sherpa-onnx
+            if engine != "system", SpeechOnnx.modelAvailable {
+                guard await speechOnnx.requestPermissions() else {
+                    showSpeechDeniedAlert = true
+                    return
+                }
+                if await speechOnnx.prepare() {
+                    speechOnnx.start()
+                    return
+                }
+                if engine == "onnx" {
+                    vm.toast = speechOnnx.lastError ?? "离线模型加载失败"
+                    return
+                }
+                // auto：离线加载失败，回退系统识别
+            } else if engine == "onnx" {
+                vm.toast = "离线模型未安装，请在设置中切换语音识别引擎"
+                return
+            }
             let ok = await speech.requestPermissions()
             if ok {
                 speech.start()

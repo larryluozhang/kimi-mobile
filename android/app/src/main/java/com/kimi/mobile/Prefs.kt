@@ -18,6 +18,7 @@ object Prefs {
     private const val KEY_PROFILES = "host_profiles"
     private const val KEY_ACTIVE = "active_profile_id"
     private const val KEY_VOICE = "voice_enabled"
+    private const val KEY_VOICE_ENGINE = "voice_engine"
     private const val KEY_MODEL = "model"
     private const val KEY_WORKSPACE = "last_workspace_id"
     // 旧版单主机字段（用于迁移）
@@ -122,6 +123,14 @@ object Prefs {
 
     fun setVoiceEnabled(ctx: Context, enabled: Boolean) {
         sp(ctx).edit().putBoolean(KEY_VOICE, enabled).apply()
+    }
+
+    /** 语音引擎：auto（离线优先，缺失回退系统）/ onnx（仅离线）/ system（仅系统） */
+    fun voiceEngine(ctx: Context): String =
+        sp(ctx).getString(KEY_VOICE_ENGINE, "auto") ?: "auto"
+
+    fun setVoiceEngine(ctx: Context, engine: String) {
+        sp(ctx).edit().putString(KEY_VOICE_ENGINE, engine).apply()
     }
 
     fun model(ctx: Context): String =

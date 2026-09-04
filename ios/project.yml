@@ -3,6 +3,11 @@ options:
   bundleIdPrefix: com.example
   deploymentTarget:
     iOS: "16.0"
+packages:
+  # sherpa-onnx 离线语音识别（SwiftPM，Apache-2.0）；产品名与包名同为 sherpa-onnx
+  sherpa-onnx:
+    url: https://github.com/k2-fsa/sherpa-onnx
+    from: 1.13.7
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -17,12 +22,20 @@ targets:
     sources:
       - path: KimiMobile/Sources
       - path: KimiMobile/Assets.xcassets
+      # 离线语音识别模型：folder reference 原样拷贝进 bundle（models/zipformer-bilingual/）
+      # 目录被 .gitignore 排除；xcodegen 要求路径存在，故需先下载模型再 generate
+      - path: KimiMobile/Resources/models
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: sherpa-onnx
+        product: sherpa-onnx
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.kimimobile
         INFOPLIST_FILE: KimiMobile/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "0.5.2"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.6.0"
+        CURRENT_PROJECT_VERSION: "4"
         ENABLE_PREVIEWS: YES

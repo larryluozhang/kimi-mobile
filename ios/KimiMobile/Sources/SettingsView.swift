@@ -79,6 +79,11 @@ struct SettingsView: View {
 
             Section {
                 Toggle("语音输入", isOn: $store.voiceEnabled)
+                Picker("语音识别引擎", selection: $store.voiceEngine) {
+                    Text("自动（优先离线）").tag("auto")
+                    Text("离线模型").tag("onnx")
+                    Text("系统识别").tag("system")
+                }
                 HStack {
                     Text("模型")
                     Spacer()

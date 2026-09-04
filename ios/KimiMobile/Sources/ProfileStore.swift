@@ -15,6 +15,10 @@ final class ProfileStore: ObservableObject {
     @Published var voiceEnabled: Bool {
         didSet { defaults.set(voiceEnabled, forKey: Keys.voice) }
     }
+    /// 语音识别引擎：auto（默认，离线模型可用则优先）/ onnx（仅离线）/ system（仅系统识别）
+    @Published var voiceEngine: String {
+        didSet { defaults.set(voiceEngine, forKey: Keys.voiceEngine) }
+    }
     @Published var model: String {
         didSet { defaults.set(model, forKey: Keys.model) }
     }
@@ -29,6 +33,7 @@ final class ProfileStore: ObservableObject {
         static let profiles = "host_profiles"
         static let active = "active_profile_id"
         static let voice = "voice_enabled"
+        static let voiceEngine = "voice_engine"
         static let model = "model"
         static let workspace = "last_workspace_id"
         static let seeded = "seeded_v3"
@@ -63,6 +68,8 @@ final class ProfileStore: ObservableObject {
         profiles = loaded
         activeProfileId = defaults.string(forKey: Keys.active) ?? loaded.first?.id
         voiceEnabled = defaults.object(forKey: Keys.voice) as? Bool ?? true
+        let engine = defaults.string(forKey: Keys.voiceEngine) ?? "auto"
+        voiceEngine = ["auto", "onnx", "system"].contains(engine) ? engine : "auto"
         let m = defaults.string(forKey: Keys.model) ?? ""
         model = m.trimmingCharacters(in: .whitespaces).isEmpty ? Constants.defaultModel : m
     }

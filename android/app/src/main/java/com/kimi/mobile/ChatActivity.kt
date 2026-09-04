@@ -51,6 +51,9 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
 
     private var ws: WsClient? = null
     private var speechRecognizer: SpeechRecognizer? = null
+    private var speechOnnx: SpeechOnnx? = null
+    @Volatile private var onnxListening = false
+    @Volatile private var onnxInitializing = false
 
     private val messages: ArrayList<ChatMsg> get() = adapter.items
     /** 当前 turn 的文本帧（frameId -> 已累积文本），保持插入顺序 */
@@ -339,6 +342,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         super.onDestroy()
         speechRecognizer?.destroy()
         speechRecognizer = null
+        speechOnnx?.release()
+        speechOnnx = null
     }
 
     private fun server() = Prefs.serverUrl(this)
@@ -720,8 +725,18 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     // ---------- 语音输入 ----------
 
     private fun setupVoice() {
-        val available = SpeechRecognizer.isRecognitionAvailable(this)
-        if (!Prefs.voiceEnabled(this) || !available) {
+        if (!Prefs.voiceEnabled(this)) {
+            btnMic.visibility = View.GONE
+            return
+        }
+        val onnxOk = SpeechOnnx.isModelAvailable(this)
+        val sysOk = SpeechRecognizer.isRecognitionAvailable(this)
+        val usable = when (Prefs.voiceEngine(this)) {
+            "onnx" -> onnxOk
+            "system" -> sysOk
+            else -> onnxOk || sysOk
+        }
+        if (!usable) {
             btnMic.visibility = View.GONE
             return
         }
@@ -729,7 +744,7 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO)
             } else {
-                startListening()
+                toggleListening()
             }
         }
     }
@@ -738,12 +753,93 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_RECORD_AUDIO) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startListening()
+                toggleListening()
             } else {
                 Toast.makeText(this, "没有录音权限，无法使用语音输入", Toast.LENGTH_SHORT).show()
             }
         }
     }
+
+    /** 麦克风按钮入口：离线识别进行中再点一次表示说完了（冲刷出最终结果），否则按引擎设置启动 */
+    private fun toggleListening() {
+        if (onnxListening) {
+            onnxListening = false
+            btnMic.alpha = 1f
+            speechOnnx?.stop() // 剩余音频冲刷后的尾段结果仍走 onResult 回调
+            hideStatus()
+            return
+        }
+        if (useOnnxEngine()) startOnnxListening() else startListening()
+    }
+
+    /** 引擎决策：onnx 强制离线（模型缺失返回 false）；system 强制系统；auto 离线优先 */
+    private fun useOnnxEngine(): Boolean {
+        return when (Prefs.voiceEngine(this)) {
+            "system" -> false
+            "onnx" -> SpeechOnnx.isModelAvailable(this)
+            else -> SpeechOnnx.isModelAvailable(this)
+        }
+    }
+
+    // ---------- 离线识别（sherpa-onnx） ----------
+
+    private fun startOnnxListening() {
+        val engine = speechOnnx ?: SpeechOnnx(this).also { speechOnnx = it }
+        if (engine.isReady) {
+            beginOnnxSession(engine)
+            return
+        }
+        if (onnxInitializing) return
+        onnxInitializing = true
+        showStatus("正在加载离线语音模型…")
+        Thread {
+            val ok = engine.init()
+            handler.post {
+                onnxInitializing = false
+                hideStatus()
+                if (ok) {
+                    beginOnnxSession(engine)
+                } else {
+                    // 初始化失败回退系统识别（onnx 强制模式除外）
+                    speechOnnx?.release()
+                    speechOnnx = null
+                    if (Prefs.voiceEngine(this) != "onnx" && SpeechRecognizer.isRecognitionAvailable(this)) {
+                        Toast.makeText(this, "离线模型不可用，已回退系统识别", Toast.LENGTH_SHORT).show()
+                        startListening()
+                    } else {
+                        Toast.makeText(this, "离线语音模型不可用", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun beginOnnxSession(engine: SpeechOnnx) {
+        val ok = engine.start(object : SpeechOnnx.Callback {
+            override fun onPartial(text: String) {
+                showStatus("识别中：$text")
+            }
+
+            override fun onResult(text: String) {
+                hideStatus()
+                if (text.isNotEmpty()) appendToInput(text)
+            }
+
+            override fun onError(msg: String) {
+                onnxListening = false
+                btnMic.alpha = 1f
+                hideStatus()
+                Toast.makeText(this@ChatActivity, msg, Toast.LENGTH_SHORT).show()
+            }
+        })
+        if (ok) {
+            onnxListening = true
+            btnMic.alpha = 0.4f
+            Toast.makeText(this, "请说话…（说完再点一次麦克风）", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---------- 系统识别（回退路径） ----------
 
     private fun startListening() {
         if (speechRecognizer == null) {

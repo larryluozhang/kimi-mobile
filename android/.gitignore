@@ -12,3 +12,6 @@ keystore.properties
 .idea/
 *.iml
 .DS_Store
+
+# 语音模型文件（约 190MB，不打包进 VCS，构建前需放入）
+app/src/main/assets/models/

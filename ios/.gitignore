@@ -4,3 +4,6 @@ DerivedData/
 .DS_Store
 xcuserdata/
 *.xcuserstate
+
+# 离线语音识别模型（体积大，发布时另行打包，不入 git）
+KimiMobile/Resources/models/

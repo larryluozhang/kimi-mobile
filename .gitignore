@@ -11,3 +11,9 @@ keystore.properties
 local.properties
 *.jks
 *.keystore
+
+# 语音识别模型（体积大，不入库；下载方式见 README）
+*.onnx
+android/app/src/main/assets/models/
+ios/KimiMobile/Resources/models/*
+!ios/KimiMobile/Resources/models/.gitkeep

@@ -10,6 +10,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -22,6 +23,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var etModel: EditText
     private lateinit var cbVoice: CheckBox
     private lateinit var tvVoiceHint: TextView
+    private lateinit var rgVoiceEngine: RadioGroup
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +33,7 @@ class SettingsActivity : AppCompatActivity() {
         etModel = findViewById(R.id.etModel)
         cbVoice = findViewById(R.id.cbVoice)
         tvVoiceHint = findViewById(R.id.tvVoiceHint)
+        rgVoiceEngine = findViewById(R.id.rgVoiceEngine)
 
         findViewById<TextView>(R.id.tvVersion).text =
             "版本 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
@@ -40,10 +43,19 @@ class SettingsActivity : AppCompatActivity() {
         etModel.setText(Prefs.model(this))
         cbVoice.isChecked = Prefs.voiceEnabled(this)
 
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            tvVoiceHint.text = "本机没有系统语音识别服务（无 GMS 的 ROM 常见），语音按钮将隐藏；可用输入法自带的语音输入。"
-        } else {
-            tvVoiceHint.text = "使用系统语音识别（zh-CN），需授予录音权限。"
+        val onnxReady = SpeechOnnx.isModelAvailable(this)
+        val sysAvailable = SpeechRecognizer.isRecognitionAvailable(this)
+        rgVoiceEngine.check(
+            when (Prefs.voiceEngine(this)) {
+                "onnx" -> R.id.rbEngineOnnx
+                "system" -> R.id.rbEngineSystem
+                else -> R.id.rbEngineAuto
+            }
+        )
+        tvVoiceHint.text = buildString {
+            append(if (onnxReady) "离线模型已内置（sherpa-onnx 中英双语）。" else "离线模型未打包，将使用系统识别。")
+            if (!sysAvailable) append("本机没有系统语音识别服务（无 GMS 的 ROM 常见）。")
+            append("需授予录音权限。")
         }
 
         findViewById<Button>(R.id.btnAddProfile).setOnClickListener {
@@ -53,6 +65,14 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSave).setOnClickListener {
             Prefs.setModel(this, etModel.text.toString())
             Prefs.setVoiceEnabled(this, cbVoice.isChecked)
+            Prefs.setVoiceEngine(
+                this,
+                when (rgVoiceEngine.checkedRadioButtonId) {
+                    R.id.rbEngineOnnx -> "onnx"
+                    R.id.rbEngineSystem -> "system"
+                    else -> "auto"
+                }
+            )
             Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
             finish()
         }
