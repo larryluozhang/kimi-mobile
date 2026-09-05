@@ -111,12 +111,36 @@ enum APIClient {
                            workspaceId: d["workspace_id"] as? String ?? workspace.id)
     }
 
-    static func getMessages(server: String, token: String, sessionId: String) async throws -> [ChatMessage] {
-        let path = "/api/v1/sessions/\(sessionId)/messages?page_size=100"
+    /// 一页历史消息：messages 为过滤后可见消息；oldestId/oldestDate 为本页最旧「原始」消息
+    /// （含被过滤的 tool 等，before_id 游标必须基于原始消息，否则整页被过滤时游标丢失）；
+    /// hasMore 粗判：本页原始 items 数达到 page_size
+    struct MessagesPage {
+        let messages: [ChatMessage]
+        let oldestId: String?
+        let oldestDate: Date?
+        let hasMore: Bool
+    }
+
+    /// 拉历史消息（不含 beforeId 时回最近一页）；beforeId 为上一页 oldestId（服务端实测有效）
+    static func getMessages(server: String, token: String, sessionId: String, beforeId: String? = nil) async throws -> MessagesPage {
+        var path = "/api/v1/sessions/\(sessionId)/messages?page_size=100"
+        if let beforeId = beforeId {
+            path += "&before_id=\(beforeId)"
+        }
         let req = try request(server: server, token: token, path: path)
         let (data, resp) = try await URLSession.shared.data(for: req)
         let d = try unwrap(data, resp)
         let items = d["items"] as? [[String: Any]] ?? []
+        // 游标：本页最旧原始消息（created_at 最小；全缺时间戳时退化为首条）
+        var oldestId: String? = items.first?["id"] as? String
+        var oldestDate: Date? = nil
+        for m in items {
+            guard let date = parseISO(m["created_at"] as? String ?? "") else { continue }
+            if oldestDate == nil || date < oldestDate! {
+                oldestDate = date
+                oldestId = m["id"] as? String
+            }
+        }
         var out: [ChatMessage] = []
         for m in items {
             let role = m["role"] as? String ?? ""
@@ -138,7 +162,8 @@ enum APIClient {
                                    text: parts.joined(separator: "\n"),
                                    createdAt: parseISO(m["created_at"] as? String ?? "")))
         }
-        return out
+        return MessagesPage(messages: out, oldestId: oldestId, oldestDate: oldestDate,
+                            hasMore: items.count >= 100)
     }
 
     /// prompt 队列条目：text + created_at（服务端时间戳，调和后按时间排序用）

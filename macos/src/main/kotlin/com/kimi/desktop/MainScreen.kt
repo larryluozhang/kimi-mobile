@@ -152,7 +152,7 @@ private suspend fun loadSidebar(state: AppState, preferWorkspaceId: String = "")
 /** 重拉服务端历史与排队/执行中列表并调和本地回显（失败静默，不打扰当前界面）；返回队列快照供 busy 轮询判活 */
 private suspend fun refreshHistory(state: AppState, sessionId: String): Api.PromptQueue? {
     return try {
-        val history = withContext(Dispatchers.IO) {
+        val page = withContext(Dispatchers.IO) {
             Api.getMessages(state.server(), state.token(), sessionId)
         }
         val prompts = fetchPromptQueue(state, sessionId)
@@ -161,8 +161,9 @@ private suspend fun refreshHistory(state: AppState, sessionId: String): Api.Prom
             AppLog.log("RECONCILE", "拉取完成时已切到 ${state.activeSessionId.take(24)}，丢弃 ${sessionId.take(24)} 的结果")
             return null
         }
+        state.historyHasMore = page.hasMore
         state.reconcileHistory(
-            history.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt)) },
+            page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt)) },
             sessionId,
             prompts.queued,
             prompts.active
@@ -171,6 +172,37 @@ private suspend fun refreshHistory(state: AppState, sessionId: String): Api.Prom
     } catch (e: Exception) {
         AppLog.error("MAIN", "refreshHistory 失败", e)
         null
+    }
+}
+
+/**
+ * 加载上一页更早历史并前插（reconcileHistory 按时间排序天然兼容，pendingEchoes/queued/active 调和不受影响）。
+ * 游标取当前列表首条真实服务端消息 id（跳过 queued-/active- 等本地合成气泡）。
+ */
+private fun loadOlderMessages(state: AppState, scope: kotlinx.coroutines.CoroutineScope, sessionId: String) {
+    if (state.olderLoading || !state.historyHasMore || sessionId.isEmpty()) return
+    val oldest = state.messages.firstOrNull {
+        it.id.isNotEmpty() && !it.id.startsWith("queued-") && !it.id.startsWith("active-")
+    }?.id ?: return
+    scope.launch {
+        state.olderLoading = true
+        try {
+            val page = withContext(Dispatchers.IO) {
+                Api.getMessages(state.server(), state.token(), sessionId, oldest)
+            }
+            if (state.activeSessionId != sessionId) return@launch // 拉取期间已切走
+            state.prependOlderHistory(
+                page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt)) }
+            )
+            state.historyHasMore = page.hasMore
+            state.olderLoadedOnce = true
+            AppLog.log("MAIN", "加载更早历史 +${page.messages.size} 条 hasMore=${page.hasMore}")
+        } catch (e: Exception) {
+            AppLog.error("MAIN", "加载更早消息失败", e)
+            state.chatError = e.message
+        } finally {
+            state.olderLoading = false
+        }
     }
 }
 
@@ -355,16 +387,18 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
         state.contextTokens = -1
         state.maxContextTokens = -1
         state.busy = state.sessions.firstOrNull { it.id == sessionId }?.busy ?: false
+        state.resetOlderHistory()
         state.historyLoading = true
         try {
-            val history = withContext(Dispatchers.IO) {
+            val page = withContext(Dispatchers.IO) {
                 Api.getMessages(state.server(), state.token(), sessionId)
             }
             // 以服务端队列为真相来源重建排队/执行中气泡（含其他端提交/重启前排队的消息）
             val prompts = fetchPromptQueue(state, sessionId)
             if (state.activeSessionId != sessionId) return@LaunchedEffect // 拉取期间已切走
+            state.historyHasMore = page.hasMore
             state.reconcileHistory(
-                history.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt)) },
+                page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt)) },
                 sessionId,
                 prompts.queued,
                 prompts.active
@@ -704,6 +738,27 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                 }
             } else {
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(vertical = 8.dp)) {
+                    // 顶部：加载更早历史（前插；keyed items 保持滚动位置不跳动）
+                    if (state.historyHasMore || state.olderLoading) {
+                        item(key = "load-older") {
+                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.Center) {
+                                if (state.olderLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Text(" 加载中…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                                } else {
+                                    TextButton(onClick = { loadOlderMessages(state, scope, sessionId) }) {
+                                        Text("加载更早消息", fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        }
+                    } else if (state.olderLoadedOnce) {
+                        item(key = "no-more-history") {
+                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.Center) {
+                                Text("没有更多了", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            }
+                        }
+                    }
                     itemsIndexed(state.messages, key = { _, m -> "h-" + m.id }) { idx, m ->
                         MessageBubble(
                             m.role, m.text,

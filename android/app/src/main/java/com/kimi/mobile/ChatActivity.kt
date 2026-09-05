@@ -47,6 +47,7 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private lateinit var tvTitle: TextView
     private lateinit var tvContext: TextView
     private lateinit var tvStatus: TextView
+    private lateinit var tvLoadEarlier: TextView
     private lateinit var etInput: EditText
     private lateinit var btnMic: ImageButton
     private lateinit var btnSend: Button
@@ -66,6 +67,16 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private val pendingLocal = ArrayList<ChatMsg>()
     /** 工具活动条目：frameId -> adapter 下标；不进历史，turn 结束后随 loadHistory 清除 */
     private val toolItems = HashMap<String, Int>()
+
+    // ---------- 历史分页（加载更早消息） ----------
+    /** 已通过 before_id 翻页加载的更早消息（时间正序），loadHistory 调和时前插合并 */
+    private val earlierHistory = ArrayList<HistoryMessage>()
+    /** 下一次 before_id 的锚点：已加载页中**最旧一条原始消息**的 id（含被过滤的 tool 消息） */
+    private var oldestHistoryRawId: String? = null
+    private var hasMoreHistory = false
+    @Volatile private var loadingEarlier = false
+    /** 加载更早消息后触发的刷新保持滚动位置（不跳到底部） */
+    private var keepScrollOnNextRefresh = false
 
     // ---------- 上下文用量 ----------
     /** 已用/上限 token（-1 表示未知）；WS 快照与 meta.merge 为优先来源，REST 仅兜底 */
@@ -112,6 +123,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         }
         tvContext = findViewById(R.id.tvContext)
         tvStatus = findViewById(R.id.tvStatus)
+        tvLoadEarlier = findViewById(R.id.tvLoadEarlier)
+        tvLoadEarlier.setOnClickListener { loadEarlierHistory() }
         etInput = findViewById(R.id.etInput)
         btnMic = findViewById(R.id.btnMic)
         btnSend = findViewById(R.id.btnSend)
@@ -561,7 +574,14 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private fun loadHistory() {
         Thread {
             try {
-                val history = Api.getMessages(server(), token(), sessionId)
+                val page = Api.getMessages(server(), token(), sessionId)
+                val history = page.items
+                // 首次进入会话时初始化分页锚点/hasMore；之后由 loadEarlierHistory 推进，轮询不覆盖
+                if (oldestHistoryRawId == null) {
+                    oldestHistoryRawId = page.oldestRawId
+                    hasMoreHistory = page.hasMore
+                    handler.post { updateLoadEarlierView() }
+                }
                 // 上下文用量兜底（实测该字段可能全 0；WS 快照/meta.merge 为优先来源，非 0 才采纳）
                 try {
                     val (used, max) = Api.getSessionUsage(server(), token(), sessionId)
@@ -651,19 +671,88 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                     }
                     // 未确认的回显（POST 在途等）并入列表，防止被 setAll 抹掉；
                     // 按 timeMillis 升序排列（无时间戳的排最后），避免回显/排队/执行中气泡
-                    // 无条件落在末尾、早于最新历史条目时顺序错乱
-                    val msgs = (history.map { ChatMsg(it.id, it.role, it.text, timeMillis = parseIso(it.createdAt)) } +
+                    // 无条件落在末尾、早于最新历史条目时顺序错乱。
+                    // earlierHistory（before_id 翻页加载的更早消息）前插合并：时间戳更早，
+                    // 排序后自然排在最前；与最新页按 id 去重（防 before_id 边界重叠）
+                    val latestIds = history.mapTo(HashSet()) { it.id }
+                    val allHistory = earlierHistory.filter { it.id !in latestIds } + history
+                    val msgs = (allHistory.map { ChatMsg(it.id, it.role, it.text, timeMillis = parseIso(it.createdAt)) } +
                         queuedMsgs + pendingLocal)
                         .sortedWith(compareBy({ it.timeMillis <= 0L }, { it.timeMillis }))
                     toolItems.clear()
                     adapter.setAll(msgs)
-                    scrollToBottom()
+                    if (keepScrollOnNextRefresh) {
+                        // 「加载更早消息」触发的前插刷新：保持当前阅读位置，不跳到底部
+                        keepScrollOnNextRefresh = false
+                    } else {
+                        scrollToBottom()
+                    }
                 }
             } catch (e: ApiException) {
                 handler.post { handleApiError(e) }
             } catch (e: Exception) {
                 handler.post {
                     Toast.makeText(this, "加载消息失败：${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    /** 顶部「加载更早消息」入口的可见性与文案（加载中…/加载更早消息；无更多时隐藏） */
+    private fun updateLoadEarlierView() {
+        if (loadingEarlier) {
+            tvLoadEarlier.text = "加载中…"
+            tvLoadEarlier.isEnabled = false
+            tvLoadEarlier.visibility = View.VISIBLE
+        } else {
+            tvLoadEarlier.text = "加载更早消息"
+            tvLoadEarlier.isEnabled = true
+            tvLoadEarlier.visibility = if (hasMoreHistory) View.VISIBLE else View.GONE
+        }
+    }
+
+    /** 点击「加载更早消息」：以当前最旧原始消息 id 为 before_id 拉上一页，
+     *  结果并入 earlierHistory（loadHistory 调和时前插，时间戳更早自然排在最前）；
+     *  排队/执行中/未送达气泡由 loadHistory 统一调和，不受影响 */
+    private fun loadEarlierHistory() {
+        if (loadingEarlier) return
+        val before = oldestHistoryRawId ?: return
+        loadingEarlier = true
+        updateLoadEarlierView()
+        Thread {
+            try {
+                val page = Api.getMessages(server(), token(), sessionId, before)
+                handler.post {
+                    loadingEarlier = false
+                    if (page.oldestRawId != null) oldestHistoryRawId = page.oldestRawId
+                    hasMoreHistory = page.hasMore
+                    val existing = earlierHistory.mapTo(HashSet()) { it.id }
+                    earlierHistory.addAll(0, page.items.filter { it.id !in existing })
+                    updateLoadEarlierView()
+                    when {
+                        page.rawCount == 0 ->
+                            Toast.makeText(this, "没有更早的消息了", Toast.LENGTH_SHORT).show()
+                        page.items.isEmpty() ->
+                            // 整页都是 tool 等被过滤的消息：已翻页但无可渲染内容，提示并可继续再翻
+                            Toast.makeText(this, "该页没有可显示的消息，可继续加载", Toast.LENGTH_SHORT).show()
+                    }
+                    if (page.items.isNotEmpty()) {
+                        // 统一走 loadHistory 的排序/排队气泡调和逻辑做前插刷新，保持滚动位置
+                        keepScrollOnNextRefresh = true
+                        loadHistory()
+                    }
+                }
+            } catch (e: ApiException) {
+                handler.post {
+                    loadingEarlier = false
+                    updateLoadEarlierView()
+                    handleApiError(e)
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    loadingEarlier = false
+                    updateLoadEarlierView()
+                    Toast.makeText(this, "加载更早消息失败：${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }.start()

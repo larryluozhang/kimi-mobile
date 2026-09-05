@@ -1,27 +1,34 @@
-# Kimi Mobile (Android)
+# Kimi Mobile — Android
 
-Native Android client for the Kimi Code web server. Connects to a self-hosted kimi web instance (REST + WebSocket); supports streaming chat, voice input, workspace switching, multi-host profiles, and the session mode bar (plan / Swarm / permission / model / goal).
+Native Android client for the Kimi Code local server (`kimi web`).
 
 ## Build
 
-The build machine is host 146 (Linux): SDK at `/opt/kimi/android-sdk`, Gradle 8.9.
+Requires Android SDK (API 34) and JDK 17+:
 
 ```bash
-ANDROID_HOME=/opt/kimi/android-sdk ./gradlew assembleRelease
+./gradlew assembleRelease
 ```
 
-Signing requires `keystore.properties` in the project root (not committed):
+To sign a release build, create `keystore.properties` in the project root (**never commit it**):
 
 ```properties
-storeFile=/opt/kimi/android-sdk/keystore/kimi-mobile.jks
+storeFile=/absolute/path/to/your.jks
 storePassword=<password>
 keyAlias=<alias>
 keyPassword=<password>
 ```
 
-## Protocol Highlights
+Without it, use `./gradlew assembleDebug` for a debug build.
 
-- Server docs: `docs/kimi-openapi.json` / `docs/kimi-asyncapi.json`
-- WS auth rides in the handshake HTTP header; reply to the 10s JSON ping with a pong carrying the same nonce; streaming arrives as transcript.ops frames
-- POST prompts must include `model` at the top level; mode fields ride along with prompts
-- System-injected user messages (<system-reminder> etc.) are not rendered
+## Offline voice model
+
+Voice input uses a sherpa-onnx streaming bilingual (zh/en) model, downloaded on demand inside the app (Settings → Download offline model). Nothing to do at build time; the engine falls back to the system recognizer when the model is not installed.
+
+## Structure
+
+- `Api.kt` — REST client (sessions/workspaces/messages/profile/approvals/questions/queue/abort/fork/undo)
+- `WsClient.kt` — WebSocket client (heartbeat, subscriptions, transcript.ops parsing)
+- `ChatActivity.kt` — chat screen: streaming rendering, tool activity, approval/question dialogs, queued/executing/undelivered reconciliation, history pagination, slash commands, voice input
+- `SessionsActivity.kt` — session list (workspace switching, auto refresh, busy badges)
+- `Prefs.kt` — host profiles and local persistence (SharedPreferences)

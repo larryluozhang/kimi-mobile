@@ -72,6 +72,14 @@ class AppState {
     /** 已发送但未在服务端历史中确认的本地回显（排队中的消息不进历史，刷新时要保留） */
     var pendingEchoes = mutableStateListOf<PendingEcho>()
     var historyLoading by mutableStateOf(false)
+    /** 上一页原始 items 数达到 page_size → 前面可能还有更早历史 */
+    var historyHasMore by mutableStateOf(false)
+    /** 「加载更早消息」进行中 */
+    var olderLoading by mutableStateOf(false)
+    /** 加载过至少一页更早历史（用于区分"没有更多了"与短会话不提示） */
+    var olderLoadedOnce by mutableStateOf(false)
+    /** 分页加载的更早历史（比首页最旧消息还早）；reconcileHistory 全量刷新时保留在头部 */
+    private val olderHistory = ArrayList<ChatMessage>()
     var busy by mutableStateOf(false)
     var phase by mutableStateOf("")
     var wsConnected by mutableStateOf(false)
@@ -133,7 +141,8 @@ class AppState {
         )
         // 输出按时间排序（旧→新；无时间戳的未知项排最后），修复回显/排队/执行中气泡
         // 无条件堆在列表末尾导致的对话顺序错乱
-        val out = ArrayList<ChatMessage>(history)
+        // 分页加载的更早历史保留在头部（时间戳更早，排序后自然在最前；按 id 去重防页边界重叠）
+        val out = ArrayList((olderHistory + history).distinctBy { it.id })
         // 历史已确认 → 移除（仅限本会话回显）
         pendingEchoes.removeAll { p ->
             p.sessionId == sessionId && history.any { it.role == "user" && sameText(it.text, p.text) }
@@ -181,6 +190,28 @@ class AppState {
     fun removeEcho(id: String) {
         pendingEchoes.removeAll { it.id == id }
         messages.removeAll { it.id == id }
+    }
+
+    /**
+     * 前插一页更早历史（时间戳均早于当前列表首条，直接插到头部即可，无需重排）；
+     * 按 id 去重（before_id 页边界或服务端包含式返回时不产生重复气泡）。
+     */
+    fun prependOlderHistory(older: List<ChatMessage>) {
+        val known = HashSet<String>(olderHistory.size + messages.size)
+        olderHistory.forEach { known.add(it.id) }
+        messages.forEach { known.add(it.id) }
+        val fresh = older.filter { it.id.isNotEmpty() && known.add(it.id) }
+        if (fresh.isEmpty()) return
+        olderHistory.addAll(fresh)
+        messages.addAll(0, fresh)
+    }
+
+    /** 切换会话时重置分页状态（不清 pendingEchoes，按 sessionId 隔离） */
+    fun resetOlderHistory() {
+        olderHistory.clear()
+        historyHasMore = false
+        olderLoading = false
+        olderLoadedOnce = false
     }
 
     fun stopWs() {

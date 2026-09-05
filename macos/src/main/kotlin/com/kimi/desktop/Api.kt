@@ -162,8 +162,17 @@ object Api {
         postData(server, token, "/api/v1/sessions/$sessionId/profile", JSONObject().put("agent_config", patch))
     }
 
-    fun getMessages(server: String, token: String, sessionId: String): List<HistoryMessage> {
-        val data = getData(server, token, "/api/v1/sessions/$sessionId/messages?page_size=100")
+    /** 一页历史消息；hasMore 粗判：本页原始 items 数达到 page_size 即认为前面还有 */
+    data class MessagesPage(val messages: List<HistoryMessage>, val hasMore: Boolean)
+
+    /**
+     * 拉取历史消息（过滤后可见文本气泡，时间正序）。
+     * beforeId 非空时传 before_id 继续向前翻页（服务端实测有效，返回比该 id 更早的一页）。
+     */
+    fun getMessages(server: String, token: String, sessionId: String, beforeId: String? = null): MessagesPage {
+        var path = "/api/v1/sessions/$sessionId/messages?page_size=100"
+        if (!beforeId.isNullOrEmpty()) path += "&before_id=$beforeId"
+        val data = getData(server, token, path)
         val items = data.optJSONArray("items") ?: JSONArray()
         val out = ArrayList<HistoryMessage>()
         for (i in 0 until items.length()) {
@@ -187,7 +196,7 @@ object Api {
             }
         }
         // API 返回最新在前，反转为时间正序（最旧在上）再渲染
-        return out.asReversed()
+        return MessagesPage(out.asReversed(), hasMore = items.length() >= 100)
     }
 
     /** prompt 队列快照：queued=排队中；active=当前正在执行的 prompt（实测 v0.37.2 起 active 不在 queued[] 里） */

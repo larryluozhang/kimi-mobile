@@ -6,6 +6,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 class ApiException(val httpCode: Int, message: String) : Exception(message)
@@ -30,6 +31,16 @@ data class HistoryMessage(
     val role: String,
     val text: String,
     val createdAt: String = ""
+)
+
+/** 一页历史消息：过滤后的可见消息 + 分页元信息。
+ *  oldestRawId 是本页**原始**（含 tool 等被过滤角色）最旧一条的 id，用作 before_id 翻页锚点；
+ *  hasMore 用原始 items 数是否达到 pageSize 粗判（服务端不回 total） */
+data class MessagesPage(
+    val items: List<HistoryMessage>,
+    val oldestRawId: String?,
+    val rawCount: Int,
+    val hasMore: Boolean
 )
 
 /** 服务端队列中的单条 prompt：文本 + 入队时间（created_at，ISO 格式，用于消息排序） */
@@ -85,6 +96,9 @@ data class SessionProfile(
 
 object Api {
     private val JSON = "application/json; charset=utf-8".toMediaType()
+
+    /** 历史消息每页条数（原始消息，含 tool 角色） */
+    const val MESSAGES_PAGE_SIZE = 100
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -188,12 +202,17 @@ object Api {
         }
     }
 
-    fun getMessages(server: String, token: String, sessionId: String): List<HistoryMessage> {
-        val req = builder(server, token, "/api/v1/sessions/$sessionId/messages?page_size=100").build()
+    /** 拉一页历史消息；beforeId 非空时向前翻页（before_id 实测有效，传本页最旧一条**原始**消息的 id） */
+    fun getMessages(server: String, token: String, sessionId: String, beforeId: String? = null): MessagesPage {
+        var url = "/api/v1/sessions/$sessionId/messages?page_size=$MESSAGES_PAGE_SIZE"
+        if (beforeId != null) url += "&before_id=" + URLEncoder.encode(beforeId, "UTF-8")
+        val req = builder(server, token, url).build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string() ?: ""
             val data = checkAuth(resp.code, body)
             val items = data.optJSONArray("items") ?: JSONArray()
+            // API 返回最新在前，最旧一条原始消息在末尾，作为下一次 before_id 的锚点
+            val oldestRawId = if (items.length() > 0) items.getJSONObject(items.length() - 1).optString("id") else null
             val out = ArrayList<HistoryMessage>()
             for (i in 0 until items.length()) {
                 val m = items.getJSONObject(i)
@@ -219,7 +238,12 @@ object Api {
                 }
             }
             // API 返回最新在前，反转为时间正序（最旧在上）再渲染
-            return out.asReversed()
+            return MessagesPage(
+                items = out.asReversed(),
+                oldestRawId = oldestRawId,
+                rawCount = items.length(),
+                hasMore = items.length() >= MESSAGES_PAGE_SIZE
+            )
         }
     }
 

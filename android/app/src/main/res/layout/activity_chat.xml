@@ -309,6 +309,21 @@
         android:textSize="13sp"
         android:visibility="gone" />
 
+    <!-- 历史分页入口：仅当可能有更早消息时显示（ChatActivity.updateLoadEarlierView 控制） -->
+    <TextView
+        android:id="@+id/tvLoadEarlier"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?android:attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:padding="8dp"
+        android:text="加载更早消息"
+        android:textColor="@color/primary"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerMessages"
         android:layout_width="match_parent"

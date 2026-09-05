@@ -28,7 +28,7 @@ object E2e {
             val sid = sessions.first().id
             AppLog.log("E2E", "目标会话 $sid（${sessions.first().title}）")
 
-            val historyBefore = Api.getMessages(server, token, sid).size
+            val historyBefore = Api.getMessages(server, token, sid).messages.size
             AppLog.log("E2E", "历史消息基线=$historyBefore")
 
             val opened = CountDownLatch(1)
@@ -83,7 +83,7 @@ object E2e {
             AppLog.log("E2E", "turn 结束=$finished state=${turnState.get()} upserts=${upserts.get()} appends=${appends.get()} assistantChars=${assistantChars.get()} busyEvents=${busyEvents.get()}")
 
             Thread.sleep(1000)
-            val historyAfter = Api.getMessages(server, token, sid)
+            val historyAfter = Api.getMessages(server, token, sid).messages
             AppLog.log("E2E", "历史消息 after=${historyAfter.size}（基线 $historyBefore）")
             val last = historyAfter.takeLast(2).joinToString(" | ") { "${it.role}:${it.text.take(40)}" }
             AppLog.log("E2E", "末尾消息: $last")

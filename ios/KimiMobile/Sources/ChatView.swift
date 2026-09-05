@@ -178,6 +178,23 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 10) {
+                    // 历史分页：顶部「加载更早消息」（before_id 上一页前插）
+                    if !vm.messages.isEmpty {
+                        if vm.loadingEarlier {
+                            Text("加载中…")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity)
+                        } else if vm.earlierExhausted {
+                            Text("没有更多了")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Button("加载更早消息") { vm.loadEarlier() }
+                                .font(.footnote)
+                        }
+                    }
                     ForEach(vm.messages) { msg in
                         MessageBubble(message: msg, onForkFrom: { vm.forkFrom($0) })
                             .id(msg.id)
@@ -185,7 +202,15 @@ struct ChatView: View {
                 }
                 .padding()
             }
-            .onChange(of: vm.messages.count) { _ in scrollToBottom(proxy) }
+            .onChange(of: vm.messages.count) { _ in
+                // 前插加载更早消息时滚回锚点（原首条），其余情况照旧滚到底部
+                if let anchor = vm.scrollAnchorAfterPrepend {
+                    vm.scrollAnchorAfterPrepend = nil
+                    proxy.scrollTo(anchor, anchor: .top)
+                } else {
+                    scrollToBottom(proxy)
+                }
+            }
             .onChange(of: vm.messages.last?.text) { _ in scrollToBottom(proxy) }
             .onTapGesture { inputFocused = false }
         }

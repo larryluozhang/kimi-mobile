@@ -35,6 +35,24 @@ final class ChatViewModel: ObservableObject {
     /// 历史刷新时以服务端历史 + GET /prompts?status=queued 队列调和，见 applyHistory）
     private var pendingLocal: [ChatMessage] = []
 
+    // MARK: - 历史分页（加载更早消息）
+
+    /// 「加载更早消息」请求进行中（按钮防连点 + 顶部「加载中…」提示）
+    @Published var loadingEarlier = false
+    /// 更早历史已翻到头（上一页原始 items 数 < page_size 时置真，顶部显示「没有更多了」）
+    @Published var earlierExhausted = false
+    /// 已翻页加载的更早历史（applyHistory 与最新一页合并渲染，轮询刷新不丢）
+    private var earlierHistory: [ChatMessage] = []
+    /// before_id 游标：已加载全部页中最旧「原始」消息的 id/时间（取各页最小值，单调向旧）
+    private var historyCursorId: String?
+    private var historyCursorDate: Date?
+    /// 最近一次调和输入缓存：loadEarlier 合并 earlierHistory 后需重跑调和渲染
+    private var lastHistory: [ChatMessage] = []
+    private var lastActive: APIClient.QueuedPrompt?
+    private var lastQueued: [APIClient.QueuedPrompt] = []
+    /// 前插后滚动锚点（前插前首条消息 id；ChatView 消费后清零，避免 onChange(count) 跳到底部）
+    @Published var scrollAnchorAfterPrepend: String?
+
     /// 待审批项（GET /approvals?status=pending 轮询结果，UI 卡片展示）
     @Published var pendingApprovals: [ApprovalItem] = []
     /// 待答问卷（GET /questions?status=pending 轮询结果，UI 卡片展示）
@@ -124,12 +142,17 @@ final class ChatViewModel: ObservableObject {
                 // 历史与服务端排队队列一起拉（队列拉取失败不阻塞历史，降级为空）
                 async let historyReq = APIClient.getMessages(server: server, token: token, sessionId: sid)
                 async let queuedReq = APIClient.listQueuedPrompts(server: server, token: token, sessionId: sid)
-                let history = try await historyReq
+                let page = try await historyReq
                 let (active, queued) = (try? await queuedReq) ?? (nil, [])
                 // 有流式帧在渲染时不覆盖，等 turn 结束后统一刷新；
                 // busy 轮询（迟到订阅者收不到 transcript.ops，无流式帧）照常调和
                 if turnActive && !frameOrder.isEmpty { return }
-                applyHistory(history, active: active, queued: queued)
+                // 游标取各页最小值：已翻页后最新一页的 oldest 更新，不回退游标
+                updateHistoryCursor(oldestId: page.oldestId, oldestDate: page.oldestDate)
+                lastHistory = page.messages
+                lastActive = active
+                lastQueued = queued
+                applyHistory(page.messages, active: active, queued: queued)
                 // 上下文用量兜底：WS（reset 快照 / meta.merge）是主数据源，
                 // 都还没收到时才查 REST usage（实测可能全 0，此时保持不显示）
                 if contextUsed == nil || contextLimit == nil { loadContextUsageFallback() }
@@ -240,9 +263,58 @@ final class ChatViewModel: ObservableObject {
                                         isExecuting: true, createdAt: a.createdAt)]
         }
         // 按 createdAt 升序（旧→新；无时间戳的排最后），修复回显/排队/执行中气泡
-        // 无条件堆在列表末尾导致的对话顺序错乱
-        messages = (history + pendingLocal + serverQueued + activeBubble)
+        // 无条件堆在列表末尾导致的对话顺序错乱。
+        // 翻页加载的更早历史（earlierHistory）在此与最新一页合并渲染：按 id 去重
+        // （最新一页为准，消除翻页后新消息推移造成的边界重叠），排序后自然前插；
+        // pendingLocal/queued/active 合成气泡无时间戳或时间更新，不受影响。
+        // 注意：上面的回显/队列文本匹配只针对最新一页 history，不匹配 earlierHistory——
+        // 避免很久以前发过同文本的旧消息把新回显误判为"已确认"。
+        let freshIds = Set(history.map { $0.id })
+        earlierHistory.removeAll { freshIds.contains($0.id) }
+        messages = (earlierHistory + history + pendingLocal + serverQueued + activeBubble)
             .sorted { ($0.createdAt ?? .distantFuture) < ($1.createdAt ?? .distantFuture) }
+    }
+
+    /// 更新 before_id 游标：取已加载各页最旧原始消息的最小值（单调向旧，
+    /// 翻页后周期轮询带回的最新一页 oldest 更新，不得回退游标导致重复翻页）
+    private func updateHistoryCursor(oldestId: String?, oldestDate: Date?) {
+        guard let id = oldestId else { return }
+        if historyCursorId == nil { historyCursorId = id; historyCursorDate = oldestDate; return }
+        guard let date = oldestDate else { return } // 无时间戳无法比较新旧，保持现游标
+        if historyCursorDate == nil || date < historyCursorDate! {
+            historyCursorId = id
+            historyCursorDate = date
+        }
+    }
+
+    /// 加载更早一页历史（顶部「加载更早消息」按钮）：before_id 取游标，
+    /// 结果并入 earlierHistory 后用缓存的最近调和输入重跑调和（前插渲染）；
+    /// 本页原始 items 数 < page_size 视为翻到头（粗判 hasMore）。
+    func loadEarlier() {
+        guard !loadingEarlier, !earlierExhausted, let cursor = historyCursorId else { return }
+        loadingEarlier = true
+        // 前插滚动锚点：记录当前首条消息，渲染后 ChatView 滚回它而不是跳到底部
+        let anchor = messages.first?.id
+        let server = store.serverURL, token = store.token, sid = sessionId
+        Task {
+            defer { loadingEarlier = false }
+            do {
+                let page = try await APIClient.getMessages(server: server, token: token,
+                                                           sessionId: sid, beforeId: cursor)
+                if !page.hasMore { earlierExhausted = true }
+                updateHistoryCursor(oldestId: page.oldestId, oldestDate: page.oldestDate)
+                let known = Set(earlierHistory.map { $0.id })
+                earlierHistory.append(contentsOf: page.messages.filter { !known.contains($0.id) })
+                // 有流式帧在渲染时不覆盖（同 loadHistory）；earlierHistory 已并入，下轮调和自然前插
+                if turnActive && !frameOrder.isEmpty { return }
+                if !page.messages.isEmpty { scrollAnchorAfterPrepend = anchor }
+                applyHistory(lastHistory, active: lastActive, queued: lastQueued)
+            } catch let e as APIError {
+                handleAPIError(e)
+            } catch {
+                toast = "加载更早消息失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     /// 审批/问答轮询（随历史调和同一轮一起拉；拉取失败不清空已有卡片，避免闪动）

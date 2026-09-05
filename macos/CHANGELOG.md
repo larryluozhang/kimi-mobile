@@ -1,140 +1,149 @@
 # Changelog
 
+## 0.7.2 (2026-09-05)
+- Paginated history loading: GET /messages returns only the latest 100 raw messages (including tool roles), so after filtering very few visible bubbles may remain;
+  a new "Load earlier messages" button at the top of the chat page pages backward with before_id=<current oldest message id> and prepends
+  (reconcileHistory's time-based sorting is naturally compatible, pendingEchoes/queued/active reconcile unaffected;
+  keyed LazyColumn prepending keeps the scroll position steady)
+- Loading state hints: spinner + "Loading..." while loading, "No more" shown after reaching the top (this page's raw items count below page_size);
+  full history refreshes on WS reconnect/busy end keep already-loaded older pages (AppState.olderHistory merged with dedup by id)
+- Api.getMessages gains an optional beforeId parameter, returning MessagesPage(messages, hasMore)
+
 ## 0.7.1 (2026-09-05)
-- Fix right-click menu showing only Copy: SelectionContainer's built-in text menu shadowed the Fork option; use LocalTextContextMenu with a custom menu (Copy + Fork From Here)
-- Context usage display fix: format pinned to "usage/limit (percent)", always including the percentage;
-  the limit comes from WS maxContextTokens (used only when >0), otherwise falls back to 1048576 (1M);
-  decimal formatting pinned to Locale.US, fixing "690.k"-style formatting errors seen under some locales
-- Fork from a message: the user bubble right-click menu gains "Fork from here" → count n = user messages after this one
-  (undelivered echoes are not counted) → :fork full clone → :undo {"count":n} on the new session → switch to the new session;
-  undo failure (e.g. 40911 nothing to undo) does not block the switch and is reported truthfully; /help updated accordingly
+- Fix the right-click menu only offering Copy: SelectionContainer's built-in text menu was shadowing the fork item; switched to LocalTextContextMenu to provide a custom menu (Copy + Fork from here)
+- Context usage display fix: format fixed as "usage/limit (percentage)", percentage always shown;
+  limit taken from WS maxContextTokens (used only when >0), otherwise fall back to 1048576 (1M);
+  decimal formatting pinned to Locale.US, fixing "690.k"-style formatting errors under some locales
+- Fork from a specific message: user bubble right-click menu gains "Fork from here" → count the user messages n after this message
+  (undelivered echoes not counted) → :fork full clone → :undo {"count":n} on the new session → switch to the new session;
+  undo failure (e.g. 40911 nothing to undo) does not block the switch and is reported faithfully; /help updated accordingly
 - Api.kt gains undoSession (POST /sessions/{id}:undo, body count field)
 
 ## 0.7.0 (2026-09-05)
-- Context usage display: shows "23.5k/1000k (2%)" next to the title in the session header; data source priority:
-  1. contextTokens/maxContextTokens from the WS transcript.reset snapshot payload.snapshot.meta.agent (read alongside phase);
-  2. agent.contextTokens from transcript.ops meta.merge (handled independently of phase; read even without phase);
-  3. fallback GET /sessions/{id} usage.context_tokens/context_limit (observed to sometimes be all 0; all-0 is treated as no data and hidden);
-  reset on session switch; WS reports override the fallback value
-- Fork button: the session header toolbar gains a "Fork" button on the same path as the /fork command
-  (Api.forkSession + switch to the new session on success; the /fork branch was refactored to reuse the same doFork)
-- /rename (or /title) command: POST /sessions/{id}/profile with a top-level title field in the body;
-  everything after the first space becomes the new title; empty input shows a usage hint; the sidebar/title refreshes on success; /help updated accordingly
+- Context usage display: shown next to the session header title as "23.5k/1000k (2%)"; data source priority
+  1) WS transcript.reset snapshot payload.snapshot.meta.agent's contextTokens/maxContextTokens (read at the same level as phase);
+  2) transcript.ops meta.merge's agent.contextTokens (handled independently of phase, read even without phase);
+  3) fallback to GET /sessions/{id}'s usage.context_tokens/context_limit (may be all 0 in practice; all-0 is treated as no data and not shown);
+  reset on session switch, WS reports override the fallback value
+- Topic fork button: the session header toolbar gains a "Fork" button, same path as the /fork command
+  (Api.forkSession + switch to the new session on success; the /fork branch refactored to reuse the same doFork)
+- /rename (or /title) command: POST /sessions/{id}/profile, body top-level title field;
+  takes all remaining text after the first space as the new title, empty shows a usage hint, on success refreshes the sidebar/title; /help updated accordingly
 - Api.kt gains renameSession / getSessionUsage
 
 ## 0.6.2 (2026-09-05)
-- Fixed / commands to match on the first token (/fork with arguments is no longer sent as a regular message)
+- Fix / commands matching by first token (/fork with arguments is no longer sent as a regular message)
 
 ## 0.6.1 (2026-09-05)
-- Slash command support in the input field (intercepted before sending; exact case-insensitive match; unrecognized /-prefixed text is still sent as a regular prompt):
-  /compact → POST /sessions/{id}:compact to compress history (empty history returns server error 40910, surfaced as an error bubble);
-  /archive → POST :archive, then clears activeSessionId and refreshes the sidebar;
-  /fork → POST :fork, switching to the returned new session on success;
-  /abort (or /stop) → POST :abort to interrupt the current turn; /new → same flow as the sidebar "New session"; /help → command list popup
+- The input box supports / slash commands (intercepted before sending, exact match case-insensitive; unrecognized text starting with / is still sent as a regular prompt):
+  /compact → POST /sessions/{id}:compact to compact history (empty history returns server error 40910, reported as an error bubble);
+  /archive → POST :archive, clears activeSessionId after archiving and refreshes the sidebar;
+  /fork → POST :fork, switches to the returned new session on success;
+  /abort (or /stop) → POST :abort to interrupt the current turn; /new → same flow as the sidebar "New session"; /help → pops up command documentation
 - Api.kt gains compactSession / archiveSession / forkSession (fork returns the new session id)
 
 ## 0.5.2 (2026-09-02)
-- Question card/dialog content area is now height-capped and scrollable: the submit button at the bottom stays reachable when there are many questions and options (synced across all three platforms)
+- Question card/dialog content area is height-limited and scrollable: with many questions and options the submit button at the bottom is always reachable (synced across all three platforms)
 
 ## 0.5.1 (2026-09-02)
-- Fixed background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
+- Fix background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
 
 ## 0.5.1 (2026-09-02)
-- Fixed background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
+- Fix background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
 
 
 ## 0.5.1 (2026-09-02)
-- Fixed background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
+- Fix background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
 ## 0.5.0 (2026-09-02)
-- Approval UI: polls GET /sessions/{id}/approvals?status=pending (every 5s); when the agent is stuck on approval, an approval card appears (tool name/action/summary + approve/reject buttons);
-  POST /approvals/{approval_id} submits the decision (approved/rejected); when the agent issues an approval-requiring tool call under manual permission it suspends, and the server resumes once this client decides
-- Question UI: polls GET /sessions/{id}/questions?status=pending (every 5s); renders questions[] as a single-choice RadioButton group, appending "Other" + a text field when allow_other is set,
-  plus a "Skip" button; answers is a map of question id → answer object (kind=single with option_id / other with text / skipped);
-  the agent resumes and the turn continues after POST /questions/{question_id}
-- Interrupt button: a "Stop" button appears in the chat header while busy, calling POST /sessions/{id}:abort (observed to return {"aborted":true}) to interrupt the current turn
+- Approval UI: poll GET /sessions/{id}/approvals?status=pending (every 5s); when the agent is stuck on approval, an approval card is shown (tool name/action/summary + approve/reject buttons),
+  POST /approvals/{approval_id} submits the decision (approved/rejected); under manual permission the agent suspends when issuing a tool call that needs approval, and the server resumes after the local decision
+- Question UI: poll GET /sessions/{id}/questions?status=pending (every 5s); single-choice RadioButton groups render questions[], with an "Other" + text input appended when allow_other,
+  and a "Skip" button; answers is a mapping of question-id → answer object (kind=single with option_id / other with text / skipped);
+  after POST /questions/{question_id} is submitted, the agent resumes and the turn continues
+- Interrupt button: when busy, the chat header shows a "Stop" button, calling POST /sessions/{id}:abort (verified to return {"aborted":true}) to interrupt the current turn
 
 ## 0.4.9 (2026-08-21)
-- The Settings window footer now shows the current version: build.gradle.kts's version is the single source of truth,
-  written at build time by the generateVersionProperties task into the version.properties resource,
-  and read from the classpath at runtime by AppVersion (shows "unknown" if the read fails)
+- Show the current version number at the bottom of the Settings window: build.gradle.kts's version is the single source of truth,
+  written into the version.properties resource by the generateVersionProperties task at build time,
+  and read from the classpath by AppVersion at runtime (shows "unknown" if reading fails)
 
 ## 0.4.8 (2026-08-20)
-- Fixed out-of-order conversations: echo/queued/executing bubbles used to be appended unconditionally to the end of the list; they now carry timestamps
-  (ChatMessage.timeMillis; Api.QueuedPrompt carries created_at), and the reconcile output is sorted by time (old → new)
-- Badge-mismatch diagnostics: reconcileHistory gains RECONCILE diagnostic logs (reconcile inputs + the verdict for each echo);
+- Fix conversation order scrambling: echo/queued/executing bubbles were previously appended unconditionally at the end of the list; they now carry timestamps
+  (ChatMessage.timeMillis; Api.QueuedPrompt carries created_at), and reconcile output is sorted by time (old→new)
+- Badge-scrambling investigation: reconcileHistory gains RECONCILE diagnostic logs (reconcile inputs + the verdict for each echo);
   refreshHistory/session-entry loading gains cross-session race protection (results are discarded if the user switched sessions during the fetch)
-- Idle sessions are also reconciled every 60s as a fallback (still 15s while busy) — after the WS liveness fix there are no more reconnect-triggered refreshes,
-  so the queued/executing/undelivered states of idle sessions can only stay fresh via periodic reconciliation
+- Idle sessions also get a fallback reconcile every 60s (still 15s when busy) — after the WS keepalive fix there are no more reconnect refreshes,
+  so queued/executing/undelivered states of idle sessions can only stay fresh via periodic reconcile
 
 ## 0.4.7 (2026-08-20)
-- Fixed the dead-silent UI when opening a session that is already running (observed on v0.37.2: a WS client that subscribes mid-turn receives none of that turn's
+- Fix opening a running session showing a dead-silent UI (verified on v0.37.2: a WS client that subscribes mid-turn receives none of that turn's
   transcript.ops, not even the turn.upsert completion event):
-  WsClient parses payload.snapshot.meta.agent.phase for the real-time phase when handling transcript.reset
-  (running/streaming/tool_call/ended...; among multiple resets from multiple agents, only the main agent is used —
-  agent_id=="main" or no agent_id with non-empty meta), and MainScreen immediately lights up the "working" state and sets busy accordingly
-- Poll history every 15s while busy (including queue reconciliation): the reply becomes visible within 15s of the in-flight turn completing,
-  no longer relying on the undeliverable turn.upsert; onWorkChanged(false) triggers one final alignment immediately,
-  and when polling finds the server has no active/queued left (busy cleared but the event was missed), it sets busy off and does one final alignment;
-  polling is LaunchedEffect(sessionId), so timers never stack within the same session
-- "Executing" is no longer called "queued": GET /prompts?status=queued's data.active is the currently executing prompt
-  (no longer inside queued[] since v0.37.2); Api.listQueuedPrompts returns PromptQueue(queued, active);
-  during reconciliation an active text matching a local echo → marked "executing" (styled like "queued"); messages in active are never marked "undelivered";
-  active entries without a local echo (submitted from another client) are rebuilt as "executing" bubbles
+  when handling transcript.reset, WsClient parses payload.snapshot.meta.agent.phase for the live phase
+  (running/streaming/tool_call/ended…; among multiple resets from multiple agents only the main agent is taken —
+  agent_id=="main" or no agent_id with meta non-empty); MainScreen uses this to immediately light up the "Working" state and set busy
+- Poll history every 15s while busy (including queue reconcile): when an in-flight turn completes, the reply is visible within 15s,
+  no longer relying on the unreceivable turn.upsert; onWorkChanged(false) immediately does a final alignment,
+  when polling finds the server has no active/queued anymore (busy gone but the event missing) it sets busy off and does a final alignment;
+  polling is LaunchedEffect(sessionId), so the same session never stacks multiple timers
+- Executing is no longer labeled "queued": GET /prompts?status=queued's data.active is the currently executing prompt
+  (since v0.37.2 it is not in queued[]), Api.listQueuedPrompts returns PromptQueue(queued, active);
+  during reconcile, an active text matching a local echo → labeled "Executing" (styled like "Queued"), messages in active are never labeled "Undelivered";
+  active entries with no local echo (submitted from other clients) are rebuilt as "Executing" bubbles
 
 ## 0.4.6 (2026-08-20)
-- Fixed stale busy badges in the sidebar: the session list only refreshed on session entry/turn end, so other sessions' "running" markers stayed in an old state;
-  MainScreen adds a 30s timer that periodically calls loadSidebar (skipped while historyLoading/mid-load, without interrupting the current UI),
-  and the sidebar also refreshes once on WS onOpen reconnect
-- Fallback for queued messages dropped by the server (upstream MoonshotAI/kimi-code#3127: under phantom-busy, queued prompts are silently dropped):
-  PendingEcho records its creation timestamp; during reconciliation, an echo in neither history nor the server queue that has existed for over 60s → marked "undelivered (dropped by server)"
-  as a red warning, no longer showing the fake "queued" state; POSTs still in flight (<60s) are kept as-is; the queued state follows the server queue;
-  queue-rebuilt bubbles (queued-$sessionId-hash) disappear directly when in neither queue nor history this round (if truly queued they will be rebuilt next round)
+- Fix stale sidebar busy badges: the session list previously refreshed only on session entry/turn end, so other sessions' "Running" labels could stay in an old state;
+  MainScreen gains a 30s timer that periodically calls loadSidebar (skipped while historyLoading/mid-load, not interrupting the current UI),
+  and the sidebar is also refreshed when WS onOpen reconnect succeeds
+- Fallback for queued messages dropped by the server (upstream MoonshotAI/kimi-code#3127: under phantom busy, queued prompts are silently dropped):
+  PendingEcho records its creation timestamp; during reconcile, an echo that is in neither history nor the server queue and has existed for over 60s → labeled "Undelivered (dropped by server)"
+  with a red warning, no longer showing the fake "Queued" state; POSTs in flight (<60s) are kept as-is, and queued state follows the server queue;
+  queue-rebuilt bubbles (queued-$sessionId-hash) disappear outright when present in neither this round's queue nor history (if truly queued, they will be rebuilt next round)
 
 ## 0.4.5 (2026-08-20)
-- Fixed the watchdog disconnecting and reconnecting the WS every ~40s (tens of thousands of times cumulatively, each reconnect pulling full history):
-  observed on v0.37.2 that the server does not send heartbeat pings on non-loopback (Tailscale IP) connections,
-  so the original passive liveness check of "disconnect after 35s of silence" does not apply; now a protocol-level ping (0x9) is sent proactively after 15s of idleness,
-  and only 35s with no frames at all is judged as a dropout triggering reconnect (verified stable with the --wsprobe probe)
+- Fix the WS being disconnected and reconnected by the watchdog every ~40s (tens of thousands of times cumulatively, each reconnect pulling the full history):
+  verified that the v0.37.2 server does not send heartbeat pings on non-loopback (Tailscale IP) connections,
+  so the original passive liveness check of disconnecting after 35s without packets did not apply; now actively send a protocol-level ping(0x9) after 15s idle for keepalive,
+  and only declare the connection dead and reconnect if still no frame arrives after 35s (verified with the --wsprobe probe that the connection stays stable)
 
 ## 0.4.4 (2026-08-20)
-- Fixed queued echoes being permanently wiped on session switch: pendingEchoes are now isolated per sessionId; LaunchedEffect no longer blindly clears them
-- The server queue is now the source of truth: added GET /sessions/{id}/prompts?status=queued (Api.listQueuedPrompts);
-  history refreshes (session entry, turn end, WS reconnect) also fetch the queue for reconciliation —
-  echoes confirmed in history are removed; ones in the queue show as "queued" bubbles (local echoes and queue entries with identical text are deduplicated to a single copy);
-  echoes in neither history nor queue (POST in flight) are kept; messages queued from other clients or before a restart can also be rebuilt as "queued" bubbles
-- Queued user bubbles carry a small "queued" marker
+- Fix queued echoes being permanently wiped when switching sessions: pendingEchoes are now isolated by sessionId, and LaunchedEffect no longer blindly clears them
+- The server queue is the source of truth: new GET /sessions/{id}/prompts?status=queued (Api.listQueuedPrompts),
+  fetched together with history refreshes (session entry, turn end, WS reconnect) for reconcile —
+  echoes confirmed in history are removed; those in the queue are shown as "Queued" bubbles (local echoes and queue entries with identical text are deduplicated, only one copy shown);
+  echoes in neither history nor queue (POST in flight) are kept; messages queued from other clients or before a restart can also be rebuilt as "Queued" bubbles
+- Queued user bubbles carry a small "Queued" label
 
 ## 0.4.3 (2026-08-20)
-- Fixed queued echoes being wiped: sendPrompt returns status (running/queued); local echoes are registered as pendingEchoes,
-  confirmed by text and removed on history refresh (turn end, WS reconnect), with unconfirmed ones kept at the end of the list; echoes are removed on send failure
-- The header status area shows "Queued..." when queued
-- Tool activity is now visible: WS frame.upsert frames with kind="tool" render as tool activity entries (🔧 name: summary, ✓ when done),
-  with the summary taken from display.summary ?: inputText ?: input, newlines stripped and truncated to 80 chars
+- Fix queued echoes being wiped: sendPrompt returns status (running/queued); local echoes are registered as pendingEchoes,
+  confirmed by text and removed on history refresh (turn end, WS reconnect), unconfirmed ones kept at the end of the list; on send failure the echo is removed
+- When queued, the header status area shows "Queued..."
+- Tool activity visibility: frames with kind="tool" in WS frame.upsert are rendered as tool activity entries (🔧 name: summary, done marked ✓),
+  summary taken from display.summary ?: inputText ?: input, newlines removed and truncated to 80 chars
 
 ## 0.4.2 (2026-08-15)
-- Fixed sessions disappearing: listSessions no longer passes busy=false (running/approval-stuck sessions were being filtered out)
-- Sessions with busy=true in the session list show a "running" marker (dot + label)
+- Fix lost sessions: listSessions no longer passes busy=false (running/stuck-on-approval sessions were being filtered out)
+- Session list shows a "Running" label for busy=true (small dot + text)
 
 ## 0.4 (2026-08-15)
-- Session mode bar: plan/Swarm toggle, permission mode, model dropdown, goal mode (create/pause/resume/cancel)
-- Mode state implemented per the official mechanism: persisted locally per session (config.properties); mode fields ride along at the top level of prompts
-- Server finding: GET /profile does not return the real agent_config (v0.35.0 hardcodes an empty shell)
-- Added the --e2e-profile self-check entry
+- Session mode bar: Plan/Swarm toggle, permission mode, model dropdown, goal mode (create/pause/resume/cancel)
+- Mode state implemented per the official mechanism: persisted locally per session (config.properties), prompts carry mode fields at the top level
+- Server finding: GET /profile does not return the real agent_config (v0.35.0 hardcoded empty shell)
+- New --e2e-profile self-check entry
 
 ## 0.3.1 (2026-08-15)
-- Fixed history messages in reverse order (the API returns newest first and must be reversed)
+- Fix history messages in reverse order (the API returns newest first and must be reversed)
 - Enter to send / Shift+Enter for newline
 
 ## 0.3 (2026-08-15)
-- Business errors (HTTP 200 wrapping code!=0) shown as red error bubbles
+- Business errors (HTTP 200 with code!=0) shown as red error bubbles
 - Phantom message filtering (system-injected user messages such as <system-reminder>)
 - WS frame-level logging; --e2e end-to-end self-check
 
 ## 0.2 (2026-08-14)
-- Full-pipeline file logging at ~/.kimi-mobile/app.log
-- Gate retry loop catches Throwable; on startup the most recent session is auto-selected and a WS connection is established
+- End-to-end file logging at ~/.kimi-mobile/app.log
+- Gate retry loop catches Throwable; on startup, automatically select the most recent session and establish the WS
 
 ## 0.1 (2026-08-14)
 - First release (Compose Multiplatform Desktop)
-- Hand-written NIO transport layer (MiniHttp/WsClient) working around this machine's OCLP JVM network stack defect (java.net/OkHttp connect but read no data)
-- Tailscale gating, sessions/workspaces, WS streaming chat, multi-host profiles
+- Handwritten NIO transport layer (MiniHttp/WsClient) to work around the JVM network stack defects of the local OCLP machine (java.net/OkHttp can connect but reads no data)
+- Tailscale gate, sessions/workspaces, WS streaming chat, multi-host profiles

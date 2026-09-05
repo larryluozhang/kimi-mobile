@@ -1,7 +1,11 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.kimi.desktop
 
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
+import androidx.compose.foundation.ContextMenuState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,10 +17,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.LocalTextContextMenu
+import androidx.compose.foundation.text.TextContextMenu
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -139,36 +146,17 @@ fun MessageBubble(
                         )
                         Spacer(Modifier.height(4.dp))
                     }
-                    SelectionContainer {
-                        Column {
-                            for (seg in parseSegments(text)) {
-                                if (seg.isCode) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(CodeBg)
-                                            .padding(10.dp)
-                                    ) {
-                                        Text(seg.text, color = CodeText, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
-                                    }
-                                } else {
-                                    Text(
-                                        seg.text,
-                                        color = when {
-                                            isUser -> Color.White
-                                            isError -> MaterialTheme.colorScheme.onErrorContainer
-                                            isThinking -> MaterialTheme.colorScheme.onSurfaceVariant
-                                            else -> MaterialTheme.colorScheme.onSurface
-                                        },
-                                        fontSize = 14.sp
-                                    )
-                                }
+                    // user 气泡：给文本选择菜单也挂上「从这里分叉」（SelectionContainer 的内建菜单只有复制，
+                    // 通过 LocalTextContextMenu 提供自定义菜单才能看到分叉项）
+                    if (isUser && onForkFromHere != null) {
+                        CompositionLocalProvider(LocalTextContextMenu provides forkTextContextMenu(onForkFromHere)) {
+                            SelectionContainer {
+                                BubbleText(text = text, streaming = streaming, isUser = isUser, isError = isError, isThinking = isThinking)
                             }
-                            if (streaming) {
-                                Text("▍", color = if (isUser) Color.White else MaterialTheme.colorScheme.primary, fontSize = 14.sp)
-                            }
+                        }
+                    } else {
+                        SelectionContainer {
+                            BubbleText(text = text, streaming = streaming, isUser = isUser, isError = isError, isThinking = isThinking)
                         }
                     }
                 }
@@ -205,5 +193,63 @@ fun ToolActivityRow(name: String, summary: String, done: Boolean) {
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+/** 气泡正文（从 MessageBubble 抽出，便于在两种 SelectionContainer 路径间复用） */
+@Composable
+private fun BubbleText(text: String, streaming: Boolean, isUser: Boolean, isError: Boolean, isThinking: Boolean) {
+    Column {
+        for (seg in parseSegments(text)) {
+            if (seg.isCode) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(CodeBg)
+                        .padding(10.dp)
+                ) {
+                    Text(seg.text, color = CodeText, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+                }
+            } else {
+                Text(
+                    seg.text,
+                    color = when {
+                        isUser -> Color.White
+                        isError -> MaterialTheme.colorScheme.onErrorContainer
+                        isThinking -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                    fontSize = 14.sp
+                )
+            }
+        }
+        if (streaming) {
+            Text("▍", color = if (isUser) Color.White else MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+        }
+    }
+}
+
+/** user 气泡的文本选择上下文菜单：复制 + 从这里分叉 */
+private fun forkTextContextMenu(onFork: () -> Unit): TextContextMenu = object : TextContextMenu {
+    @Composable
+    override fun Area(
+        textManager: TextContextMenu.TextManager,
+        state: ContextMenuState,
+        content: @Composable () -> Unit
+    ) {
+        ContextMenuArea(
+            items = {
+                buildList {
+                    textManager.copy?.let { copy ->
+                        add(ContextMenuItem("复制") { copy(); state.status = ContextMenuState.Status.Closed })
+                    }
+                    add(ContextMenuItem("从这里分叉") { onFork(); state.status = ContextMenuState.Status.Closed })
+                }
+            },
+            state = state,
+            content = content
+        )
     }
 }

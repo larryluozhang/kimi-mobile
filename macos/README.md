@@ -1,21 +1,21 @@
 # Kimi Mobile (macOS)
 
-macOS desktop client for the Kimi Code web server (Compose Multiplatform Desktop). Feature-parity with the Android version: Tailscale gating, session/workspace switching, WS streaming chat, multi-host profiles, session mode bar.
+macOS desktop client for the Kimi Code web server (Compose Multiplatform Desktop). Feature parity with the Android client: gate screen, session/workspace switching, WS streaming chat, multi-host profiles, session mode bar, approval/question cards, fork/rename, history pagination, slash commands, version display.
 
 ## Build
 
-Requires a JDK (a portable one lives at `~/kimi-desktop-toolchain/jdk-21.0.12+8`):
+Requires JDK 17+:
 
 ```bash
-JAVA_HOME=~/kimi-desktop-toolchain/jdk-21.0.12+8/Contents/Home ./gradlew clean packageDmg
+./gradlew clean packageDmg
 ```
 
-**Note**: the Compose plugin's createDistributable incremental cache can silently package a stale jar; always run `clean` before a release and check the jar version inside the DMG.
+**Note:** the Compose plugin's `createDistributable` incremental cache can silently package a stale jar — always release with `clean` and verify the jar version inside the DMG.
 
-## Important: this machine's network stack
+## Note: hand-written network layer
 
-On this machine (OCLP macOS 15) the JVM high-level network stack is broken: java.net.Socket/HttpClient/OkHttp all "connect but read no data"; only NIO SocketChannel works. The network layer is therefore hand-written: `MiniHttp.kt` (NIO HTTP) and `WsClient.kt` (NIO WebSocket frame codec) — **do not switch back to OkHttp**.
+`MiniHttp.kt` (NIO HTTP) and `WsClient.kt` (NIO WebSocket framing) are hand-written — on some older machines (e.g. OCLP-patched Macs) the JVM's high-level network stack (`java.net.Socket` / `HttpClient` / OkHttp) can connect but never reads data, while NIO `SocketChannel` works. If your JVM networking is healthy you could swap back to OkHttp, but it is not recommended.
 
-## Protocol Highlights
+## Protocol notes
 
-Same as the Android README. Debug log at `~/.kimi-mobile/app.log`; `--e2e` / `--e2e-profile` provide windowless self-checks.
+See `docs/PROTOCOL-NOTES.md` at the repository root. Debug log: `~/.kimi-mobile/app.log`; `--e2e` / `--e2e-profile` run headless self-checks.
