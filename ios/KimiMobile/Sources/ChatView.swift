@@ -179,7 +179,7 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(vm.messages) { msg in
-                        MessageBubble(message: msg)
+                        MessageBubble(message: msg, onForkFrom: { vm.forkFrom($0) })
                             .id(msg.id)
                     }
                 }
@@ -296,6 +296,8 @@ struct ChatView: View {
 
 struct MessageBubble: View {
     let message: ChatMessage
+    /// user 气泡长按「从这里分叉」回调（fork 全量克隆 + 新会话 undo 分叉点之后的消息）
+    var onForkFrom: ((ChatMessage) -> Void)? = nil
 
     private var isUser: Bool { message.role == "user" }
     private var isTool: Bool { message.role == "tool" }
@@ -389,6 +391,14 @@ struct MessageBubble: View {
                 UIPasteboard.general.string = message.text
             } label: {
                 Label("复制", systemImage: "doc.on.doc")
+            }
+            // 仅 user 气泡可分叉：fork 全量克隆后在新会话 undo 该消息之后的 n 条 user 消息
+            if isUser, let onForkFrom = onForkFrom {
+                Button {
+                    onForkFrom(message)
+                } label: {
+                    Label("从这里分叉", systemImage: "arrow.triangle.branch")
+                }
             }
         }
     }

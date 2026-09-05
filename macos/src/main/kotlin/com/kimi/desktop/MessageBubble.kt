@@ -55,7 +55,15 @@ private fun parseSegments(text: String): List<Segment> {
 }
 
 @Composable
-fun MessageBubble(role: String, text: String, streaming: Boolean = false, queued: Boolean = false, executing: Boolean = false, undelivered: Boolean = false) {
+fun MessageBubble(
+    role: String,
+    text: String,
+    streaming: Boolean = false,
+    queued: Boolean = false,
+    executing: Boolean = false,
+    undelivered: Boolean = false,
+    onForkFromHere: (() -> Unit)? = null
+) {
     val isUser = role == "user"
     val isThinking = role == "thinking"
     val isError = role == "error"
@@ -67,7 +75,13 @@ fun MessageBubble(role: String, text: String, streaming: Boolean = false, queued
     ) {
         ContextMenuArea(
             items = {
-                listOf(ContextMenuItem("复制") { clipboard.setText(AnnotatedString(text)) })
+                buildList {
+                    add(ContextMenuItem("复制") { clipboard.setText(AnnotatedString(text)) })
+                    // 「从这里分叉」：仅 user 气泡（fork 全量克隆 + 新会话 undo 掉该消息之后的内容）
+                    if (isUser && onForkFromHere != null) {
+                        add(ContextMenuItem("从这里分叉") { onForkFromHere() })
+                    }
+                }
             }
         ) {
             val shape = RoundedCornerShape(

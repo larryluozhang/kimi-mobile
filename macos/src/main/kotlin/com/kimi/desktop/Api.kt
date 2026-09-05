@@ -271,6 +271,11 @@ object Api {
         return data.optJSONObject("session")?.optString("id") ?: data.optString("id", "")
     }
 
+    /** 撤销会话末尾 count 条 user 消息及其后内容（实测有效；无可 undo 时报 40911） */
+    fun undoSession(server: String, token: String, sessionId: String, count: Int) {
+        postData(server, token, "/api/v1/sessions/$sessionId:undo", JSONObject().put("count", count))
+    }
+
     /** 会话改名：POST /sessions/{id}/profile，body 顶层 title 字段（服务端实测） */
     fun renameSession(server: String, token: String, sessionId: String, title: String) {
         postData(server, token, "/api/v1/sessions/$sessionId/profile", JSONObject().put("title", title))

@@ -12,6 +12,7 @@ import android.text.style.TypefaceSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
@@ -41,6 +42,9 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
     }
 
     val items = ArrayList<ChatMsg>()
+
+    /** user 气泡长按菜单「从这里分叉」回调（由 ChatActivity 注入，fork+undo 流程） */
+    var onForkFrom: ((ChatMsg) -> Unit)? = null
 
     fun setAll(list: List<ChatMsg>) {
         items.clear()
@@ -143,11 +147,31 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
             holder.time.visibility = View.GONE
         }
         holder.text.setOnLongClickListener {
-            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("message", m.text))
-            Toast.makeText(ctx, R.string.copied, Toast.LENGTH_SHORT).show()
+            if (m.role == "user" && onForkFrom != null) {
+                // user 气泡：弹菜单（复制 / 从这里分叉）
+                PopupMenu(ctx, holder.text).apply {
+                    menu.add(0, 1, 0, "复制")
+                    menu.add(0, 2, 1, "从这里分叉")
+                    setOnMenuItemClickListener { item ->
+                        when (item.itemId) {
+                            1 -> { copyText(ctx, m.text); true }
+                            2 -> { onForkFrom?.invoke(m); true }
+                            else -> false
+                        }
+                    }
+                    show()
+                }
+            } else {
+                copyText(ctx, m.text)
+            }
             true
         }
+    }
+
+    private fun copyText(ctx: Context, text: String) {
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("message", text))
+        Toast.makeText(ctx, R.string.copied, Toast.LENGTH_SHORT).show()
     }
 
     /**

@@ -272,13 +272,21 @@ enum APIClient {
     }
 
     /// 通用会话动作（POST /sessions/{id}:{action}，冒号后缀语法，同 :abort）；
-    /// 返回解包后的 data（如 :fork 的新会话信息）
-    static func sessionAction(server: String, token: String, sessionId: String, action: String) async throws -> [String: Any] {
+    /// 返回解包后的 data（如 :fork 的新会话信息）；body 可空（如 :undo 需要 {"count":N}）
+    static func sessionAction(server: String, token: String, sessionId: String, action: String,
+                              body: [String: Any]? = nil) async throws -> [String: Any] {
         let req = try request(server: server, token: token,
                               path: "/api/v1/sessions/\(sessionId):\(action)",
-                              method: "POST")
+                              method: "POST", body: body)
         let (data, resp) = try await URLSession.shared.data(for: req)
         return try unwrap(data, resp)
+    }
+
+    /// 撤销会话末尾 count 条 user 消息（POST /sessions/{id}:undo，body {"count":N}，已实测有效）；
+    /// 用于「从这里分叉」：fork 全量克隆后在新会话撤掉分叉点之后的消息
+    static func undoSession(server: String, token: String, sessionId: String, count: Int) async throws {
+        _ = try await sessionAction(server: server, token: token, sessionId: sessionId,
+                                    action: "undo", body: ["count": count])
     }
 
     /// 改会话标题（POST /sessions/{id}/profile，body 顶层 {"title":"..."}，已实测）

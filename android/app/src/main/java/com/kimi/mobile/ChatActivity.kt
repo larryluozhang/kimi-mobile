@@ -119,6 +119,7 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         recycler = findViewById(R.id.recyclerMessages)
         recycler.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
         adapter = MessageAdapter()
+        adapter.onForkFrom = { msg -> forkFromMessage(msg) }
         recycler.adapter = adapter
 
         btnSend.setOnClickListener { sendCurrentText() }
@@ -808,6 +809,65 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         }.start()
     }
 
+    /** 「从这里分叉」：:fork 全量克隆 → 对新会话 :undo {"count":n} 裁掉该消息之后的 n 条 user 消息 → 跳转新会话 */
+    private fun forkFromMessage(msg: ChatMsg) {
+        val idx = messages.indexOfFirst { it.id == msg.id }
+        if (idx < 0) return
+        // 只统计已进入服务端历史的 user 消息（本地回显/排队中/执行中的气泡不在历史里，:undo 裁不到）
+        val n = messages.subList(idx + 1, messages.size).count {
+            it.role == "user" &&
+                !it.id.startsWith("local-") && !it.id.startsWith("queued-") && !it.id.startsWith("active-")
+        }
+        showStatus("分叉中…")
+        Thread {
+            try {
+                val data = Api.sessionAction(server(), token(), sessionId, "fork")
+                val newId = data.optString("id").ifEmpty {
+                    data.optJSONObject("session")?.optString("id").orEmpty()
+                }
+                if (newId.isEmpty()) {
+                    handler.post {
+                        hideStatus()
+                        Toast.makeText(this, "fork 成功但未返回新会话 ID", Toast.LENGTH_LONG).show()
+                    }
+                    return@Thread
+                }
+                var undoFailed: String? = null
+                if (n > 0) {
+                    try {
+                        Api.undoSession(server(), token(), newId, n)
+                    } catch (e: Exception) {
+                        // 新会话已建但裁剪失败：保留新会话，提示用户内容未裁剪
+                        undoFailed = e.message ?: e.toString()
+                    }
+                }
+                val newTitle = data.optString("title").ifEmpty {
+                    data.optJSONObject("session")?.optString("title").orEmpty()
+                }.ifEmpty { "Fork 会话" }
+                handler.post {
+                    hideStatus()
+                    if (undoFailed != null) {
+                        Toast.makeText(this, "新会话已创建，但内容未裁剪（undo 失败：$undoFailed）", Toast.LENGTH_LONG).show()
+                    }
+                    startActivity(Intent(this, ChatActivity::class.java).apply {
+                        putExtra(EXTRA_SESSION_ID, newId)
+                        putExtra(EXTRA_SESSION_TITLE, newTitle)
+                    })
+                }
+            } catch (e: ApiException) {
+                handler.post {
+                    hideStatus()
+                    handleApiError(e)
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    hideStatus()
+                    Toast.makeText(this, "分叉失败：${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     /** :fork 返回新会话（data 内含 id，兼容嵌套 session 对象），跳转到新会话 */
     private fun openForkedSession(data: JSONObject) {
         val newId = data.optString("id").ifEmpty {
@@ -1247,17 +1307,17 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
             tvContext.visibility = View.GONE
             return
         }
-        val limit = if (contextLimit > 0) "/${fmtTokens(contextLimit)}" else ""
-        val pct = if (contextLimit > 0) " (${contextTokens * 100 / contextLimit}%)" else ""
-        tvContext.text = "上下文 ${fmtTokens(contextTokens)}$limit$pct"
+        // limit 取 WS maxContextTokens（>0 才用），否则兜底 1M（实测服务端快照值）；任何情况都带百分比
+        val limit = if (contextLimit > 0) contextLimit else 1048576L
+        tvContext.text = "上下文 ${fmtTokens(contextTokens)}/${fmtTokens(limit)} (${contextTokens * 100 / limit}%)"
         tvContext.visibility = View.VISIBLE
     }
 
-    /** token 数格式化：≥1000 用 k（23.5k / 1000k），否则原样 */
+    /** token 数格式化：≥1000 用 k（23.5k / 1000k），否则原样；固定 US locale 避免小数点本地化 */
     private fun fmtTokens(n: Long): String =
         if (n >= 1000) {
             val k = n / 1000.0
-            if (k % 1.0 == 0.0) "${k.toLong()}k" else String.format("%.1fk", k)
+            if (k % 1.0 == 0.0) "${k.toLong()}k" else String.format(java.util.Locale.US, "%.1fk", k)
         } else "$n"
 
     // ---------- 流式气泡 ----------

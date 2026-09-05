@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,21 +100,22 @@ fun MainScreen(state: AppState) {
     }
 }
 
-/** token 数格式化：>=1000 显示为 k（23500 → "23.5k"，1000000 → "1000k"） */
+/** WS 未上报 maxContextTokens（<=0）时的上下文上限兜底：1M */
+private const val FALLBACK_CONTEXT_LIMIT = 1048576L
+
+/** token 数格式化：>=1000 显示为 k（23500 → "23.5k"，1000000 → "1000k"）；小数固定 Locale.US，避免某些 locale 下出现 "690,k"/"690.k" */
 private fun formatTokenCount(n: Long): String =
     if (n >= 1000) {
         val k = n / 1000.0
-        if (k == k.toLong().toDouble()) "${k.toLong()}k" else "%.1fk".format(k)
+        if (k == k.toLong().toDouble()) "${k.toLong()}k" else "%.1fk".format(java.util.Locale.US, k)
     } else "$n"
 
-/** 上下文使用量展示：如 "23.5k/1000k (2%)"；max<=0（服务端未报上限）时只显示用量 */
-private fun formatContextUsage(contextTokens: Long, maxContextTokens: Long): String =
-    if (maxContextTokens > 0) {
-        val pct = contextTokens * 100 / maxContextTokens
-        "${formatTokenCount(contextTokens)}/${formatTokenCount(maxContextTokens)} ($pct%)"
-    } else {
-        formatTokenCount(contextTokens)
-    }
+/** 上下文使用量展示：固定 "用量/上限 (百分比)"（如 "23.5k/1000k (2%)"）；上限取 WS maxContextTokens，>0 才用，否则兜底 1M */
+private fun formatContextUsage(contextTokens: Long, maxContextTokens: Long): String {
+    val limit = if (maxContextTokens > 0) maxContextTokens else FALLBACK_CONTEXT_LIMIT
+    val pct = contextTokens * 100 / limit
+    return "${formatTokenCount(contextTokens)}/${formatTokenCount(limit)} ($pct%)"
+}
 
 private suspend fun loadSidebar(state: AppState, preferWorkspaceId: String = "") {
     state.sessionsLoading = true
@@ -574,6 +576,32 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                 } catch (e: Throwable) { slashFail(e, "分叉会话") }
             }
         }
+        // 从第 idx 条消息分叉：fork 全量克隆当前会话，再在新会话 undo 掉该消息之后的 user 消息（及后内容），最后切到新会话
+        val doForkFrom: (Int) -> Unit = { idx ->
+            scope.launch {
+                try {
+                    // 该消息之后的 user 消息数（未送达的本端回显服务端已丢弃，不计入）
+                    val n = state.messages.drop(idx + 1).count { it.role == "user" && !it.undelivered }
+                    val newId = withContext(Dispatchers.IO) { Api.forkSession(state.server(), state.token(), sessionId) }
+                    if (newId.isEmpty()) {
+                        state.chatError = "分叉成功，但服务端未返回新会话 id"
+                        return@launch
+                    }
+                    if (n > 0) {
+                        try {
+                            withContext(Dispatchers.IO) { Api.undoSession(state.server(), state.token(), newId, n) }
+                        } catch (e: Throwable) {
+                            // undo 失败（如 40911 无可 undo）不阻断切换，如实反馈
+                            AppLog.error("FORK", "新会话 undo 失败 count=$n", e)
+                            state.chatError = "分叉成功，但裁剪新会话失败：${e.message}"
+                        }
+                    }
+                    AppLog.log("FORK", "已从消息 #$idx 分叉 newId=${newId.take(24)} undoCount=$n")
+                    loadSidebar(state, state.activeWorkspaceId)
+                    state.activeSessionId = newId
+                } catch (e: Throwable) { slashFail(e, "从这里分叉") }
+            }
+        }
         // 聊天头部
         Surface(color = MaterialTheme.colorScheme.surface) {
             Row(
@@ -676,8 +704,12 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                 }
             } else {
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(vertical = 8.dp)) {
-                    items(state.messages, key = { "h-" + it.id }) { m ->
-                        MessageBubble(m.role, m.text, queued = m.queued, executing = m.executing, undelivered = m.undelivered)
+                    itemsIndexed(state.messages, key = { _, m -> "h-" + m.id }) { idx, m ->
+                        MessageBubble(
+                            m.role, m.text,
+                            queued = m.queued, executing = m.executing, undelivered = m.undelivered,
+                            onForkFromHere = if (m.role == "user") ({ doForkFrom(idx) }) else null
+                        )
                     }
                     items(state.frames, key = { "f-" + it.frameId }) { f ->
                         if (f.kind == "tool") {
@@ -805,6 +837,8 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                         /abort（或 /stop）— 中断当前正在运行的 turn
                         /new — 新建会话
                         /help — 显示本说明
+
+                        右键自己的消息气泡 →「从这里分叉」，可从该条消息分叉出新会话。
 
                         其他以 / 开头的文本会作为普通消息发送。
                         """.trimIndent()

@@ -299,6 +299,18 @@ object Api {
         }
     }
 
+    /** 裁剪会话：POST /sessions/{id}:undo {"count":N}，从末尾移除 N 条 user 消息及其后内容（实测有效；40911=无可 undo） */
+    fun undoSession(server: String, token: String, sessionId: String, count: Int) {
+        val payload = JSONObject().put("count", count)
+        val req = builder(server, token, "/api/v1/sessions/$sessionId:undo")
+            .post(payload.toString().toRequestBody(JSON))
+            .build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            checkAuth(resp.code, body)
+        }
+    }
+
     /** 会话详情兜底取上下文用量：usage.context_tokens / context_limit（实测该字段可能全 0，仅作兜底） */
     fun getSessionUsage(server: String, token: String, sessionId: String): Pair<Long, Long> {
         val req = builder(server, token, "/api/v1/sessions/$sessionId").build()

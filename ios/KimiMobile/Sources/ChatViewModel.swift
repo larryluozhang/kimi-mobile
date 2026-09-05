@@ -67,18 +67,24 @@ final class ChatViewModel: ObservableObject {
     其他 / 开头的输入当作普通消息发送
     """
 
-    /// 上下文用量显示文本，如「上下文 23.5k/1000k (2%)」；数据未就绪时为 nil
+    /// 上下文上限兜底：WS maxContextTokens 缺失或 ≤0 时按 1M 计算（保证任何情况都带百分比）
+    private static let defaultContextLimit = 1_048_576
+
+    /// 上下文用量显示文本，固定「用量/上限 (百分比)」，如「上下文 23.5k/1000k (2%)」；
+    /// limit 取 WS maxContextTokens，>0 才用，否则兜底 1048576；used 未就绪时为 nil
     var contextUsageText: String? {
-        guard let used = contextUsed, let limit = contextLimit, limit > 0 else { return nil }
+        guard let used = contextUsed else { return nil }
+        let limit = (contextLimit ?? 0) > 0 ? contextLimit! : Self.defaultContextLimit
         let pct = Int((Double(used) / Double(limit) * 100).rounded())
         return "上下文 \(Self.formatTokens(used))/\(Self.formatTokens(limit)) (\(pct)%)"
     }
 
-    /// token 数缩写：≥1000 用 k（整数不带小数，如 1000k；非整数保留一位，如 23.5k）
+    /// token 数缩写：≥1000 用 k（保留一位小数，整数去 .0，如 1000k / 23.5k）。
+    /// 先格式化再裁 ".0" 后缀，避免四舍五入到整数时漏出 "1000.0k" 这类小数
     private static func formatTokens(_ n: Int) -> String {
         guard n >= 1000 else { return "\(n)" }
-        let k = Double(n) / 1000
-        return k.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(k))k" : String(format: "%.1fk", k)
+        let s = String(format: "%.1f", Double(n) / 1000)
+        return (s.hasSuffix(".0") ? String(s.dropLast(2)) : s) + "k"
     }
 
     init(store: ProfileStore, sessionId: String, sessionTitle: String) {
@@ -477,6 +483,48 @@ final class ChatViewModel: ObservableObject {
             let title = (data["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "（分支会话）"
             self.forkTarget = SessionItem(id: sid, title: title, updatedAt: "",
                                           busy: false, workspaceId: "")
+        }
+    }
+
+    /// 从某条 user 消息分叉（气泡长按「从这里分叉」）：:fork 全量克隆当前会话后，
+    /// 在新会话 :undo {"count":n} 撤掉该消息之后的 n 条 user 消息（服务端实测有效），再切到新会话。
+    /// 计数只算已在服务端历史里的 user 消息：本地乐观回显（pendingLocal）与排队/执行中
+    /// 合成气泡（queued-N / active）尚未进历史，不能计入，否则会多撤。
+    func forkFrom(_ message: ChatMessage) {
+        guard let idx = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        let pendingIds = Set(pendingLocal.map { $0.id })
+        let n = messages[(idx + 1)...].filter {
+            $0.role == "user" && !pendingIds.contains($0.id)
+                && !$0.id.hasPrefix("queued-") && $0.id != "active"
+        }.count
+        statusText = "正在分叉…"
+        let server = store.serverURL, token = store.token, sid = sessionId
+        Task {
+            do {
+                let data = try await APIClient.sessionAction(server: server, token: token,
+                                                             sessionId: sid, action: "fork")
+                // 服务端在新会话信息里回 id（兼容 session_id 键）
+                let newSid = (data["id"] as? String) ?? (data["session_id"] as? String) ?? ""
+                guard !newSid.isEmpty else {
+                    statusText = nil
+                    toast = "已分叉会话，请返回列表查看"
+                    return
+                }
+                if n > 0 {
+                    try await APIClient.undoSession(server: server, token: token,
+                                                    sessionId: newSid, count: n)
+                }
+                statusText = nil
+                let title = (data["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "（分支会话）"
+                forkTarget = SessionItem(id: newSid, title: title, updatedAt: "",
+                                         busy: false, workspaceId: "")
+            } catch let e as APIError {
+                statusText = nil
+                handleAPIError(e)
+            } catch {
+                statusText = nil
+                toast = "分叉失败：\(error.localizedDescription)"
+            }
         }
     }
 

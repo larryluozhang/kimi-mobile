@@ -1,5 +1,14 @@
 # 版本记录
 
+## 0.7.1 (2026-09-05)
+- 上下文用量显示修复：格式固定「用量/上限 (百分比)」，任何情况都带百分比；
+  上限取 WS maxContextTokens（>0 才用），否则兜底 1048576（1M）；
+  小数格式化固定 Locale.US，修掉某些 locale 下出现的「690.k」类格式错误
+- 从某条消息分叉：user 气泡右键菜单新增「从这里分叉」→ 统计该消息之后的 user 消息数 n
+  （未送达回显不计入）→ :fork 全量克隆 → 新会话 :undo {"count":n} → 切到新会话；
+  undo 失败（如 40911 无可 undo）不阻断切换，如实反馈；/help 同步补充说明
+- Api.kt 新增 undoSession（POST /sessions/{id}:undo，body count 字段）
+
 ## 0.7.0 (2026-09-05)
 - 上下文使用量显示：会话头部标题旁展示「23.5k/1000k (2%)」；数据源优先级
   ① WS transcript.reset 快照 payload.snapshot.meta.agent 的 contextTokens/maxContextTokens（与 phase 同层取）；

@@ -1,5 +1,9 @@
 # 版本记录
 
+## 0.7.1 (2026-09-05)
+- 修复上下文用量显示：limit 取 WS maxContextTokens（>0 才采纳），否则兜底 1048576（1M，实测服务端快照值）；显示格式固定为「用量/上限 (百分比)」（如「上下文 690/1000k (0%)」），任何情况都带百分比；fmtTokens 小数格式化固定 US locale，修复「690.k」类显示错误
+- 新增「从这里分叉」：user 气泡长按弹菜单（复制 / 从这里分叉）；分叉逻辑：统计该消息之后已进入服务端历史的 user 消息数 n → :fork 全量克隆 → 对新会话 :undo {"count":n} 裁掉其后内容 → 跳转新会话（Api 新增 undoSession，POST /sessions/{id}:undo）；过程中状态条提示「分叉中…」，fork 失败 Toast，undo 失败保留新会话并提示内容未裁剪
+
 ## 0.7.0 (2026-09-05)
 - 上下文用量显示：模式概要条右侧新增「上下文 23.5k/1000k (2%)」；数据源优先级 ① WS transcript.reset 快照 meta.agent.contextTokens/maxContextTokens ② transcript.ops 的 meta.merge agent.contextTokens ③ GET /sessions/{id} 的 usage.context_tokens/context_limit（实测可能全 0，非 0 才采纳，仅兜底）；busy 轮询（loadHistory）与 WS 事件时刷新，无数据时隐藏
 - 聊天页头部新增「分叉」按钮：与 /fork 命令同一代码路径（Api.sessionAction("fork") → 跳转新会话）
