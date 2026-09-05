@@ -1,0 +1,10 @@
+# 构建产物
+.gradle/
+build/
+local.properties
+*.dmg
+
+# IDE
+.idea/
+*.iml
+.DS_Store

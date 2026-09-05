@@ -1,0 +1,439 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0946896E3DB4906D9C2F9BB8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8F5A77813BA8BE1CDEA4FF91 /* Assets.xcassets */; };
+		148DEB518B1A6FEDA87F03C2 /* KimiMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC03243C484E4F0A60D3F36 /* KimiMobileApp.swift */; };
+		1C73F2B08D638DD108194415 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F34BF11BE82579FFF28E49E /* Theme.swift */; };
+		2599F24B3E9665B047FAB179 /* SpeechInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D362F572FADE1EA108C1DD8 /* SpeechInput.swift */; };
+		25FDEC6D1E96C5E4416E989B /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA79EF2AFD5486027DF3843 /* KeychainStore.swift */; };
+		29A43AA1D9EE23FE7D462EAE /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7227B01AE4216DE09C226F6 /* Models.swift */; };
+		58D8B102D1A7B7A412FC5AFD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1027D597D8F8230B1650A91C /* SettingsView.swift */; };
+		5EA29D4D42BADD286F8AA6AC /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = A1E1C2FFE327BD5B863AD459 /* ZIPFoundation */; };
+		768FDE806FEC4DE53565AF71 /* ModelDownload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C35AE5B10B0AD4F3AF4E64 /* ModelDownload.swift */; };
+		76F66B4C489970E3192CF3B2 /* SpeechOnnx.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366C66205E99213F1EAA6408 /* SpeechOnnx.swift */; };
+		7DD309845179733E41BA5BE7 /* GateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD9A589F9821AEEA5E233B6 /* GateView.swift */; };
+		89F4B0632DB5644A99FECF92 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1B40782E3B28A363D64A08 /* MainView.swift */; };
+		A0009B54109BE436EE8FD523 /* sherpa-onnx in Frameworks */ = {isa = PBXBuildFile; productRef = 646327FF3DB7498009D1E052 /* sherpa-onnx */; };
+		ADFA9B579CA360F4BC08EAAD /* WSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 921F7B36AF1CD434F1CA2978 /* WSService.swift */; };
+		CB0434F1527FFE20CB2E68C4 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF51CBB8C2453963915BCD9 /* ChatView.swift */; };
+		CBE1496D5109D7D1F9397737 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BF6DFA010558839B89DEA9 /* ChatViewModel.swift */; };
+		DFDBDDF877F42BB6B8800C0F /* MarkdownContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE80A521554AF0D1A27A0832 /* MarkdownContent.swift */; };
+		E03BF899E77063DFD3BBDDE7 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4FE5D2EE3BC811A45FC32E /* ProfileStore.swift */; };
+		E981F006CB47F6DF6F96E766 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A3DC8B03DDBFA259D35BA5 /* APIClient.swift */; };
+		F0E54E7F88EBB5036E1580A7 /* ModeBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95E2F574DC08A594ED317DBE /* ModeBarView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0F34BF11BE82579FFF28E49E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		1027D597D8F8230B1650A91C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		11C35AE5B10B0AD4F3AF4E64 /* ModelDownload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownload.swift; sourceTree = "<group>"; };
+		22A3DC8B03DDBFA259D35BA5 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		366C66205E99213F1EAA6408 /* SpeechOnnx.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechOnnx.swift; sourceTree = "<group>"; };
+		3D13A3D0A130413D78ABD8A7 /* KimiMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KimiMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4C1B40782E3B28A363D64A08 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
+		7D362F572FADE1EA108C1DD8 /* SpeechInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechInput.swift; sourceTree = "<group>"; };
+		8AA79EF2AFD5486027DF3843 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		8D4FE5D2EE3BC811A45FC32E /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
+		8F5A77813BA8BE1CDEA4FF91 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		921F7B36AF1CD434F1CA2978 /* WSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WSService.swift; sourceTree = "<group>"; };
+		95E2F574DC08A594ED317DBE /* ModeBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeBarView.swift; sourceTree = "<group>"; };
+		9DF51CBB8C2453963915BCD9 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		A7227B01AE4216DE09C226F6 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		BAC03243C484E4F0A60D3F36 /* KimiMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiMobileApp.swift; sourceTree = "<group>"; };
+		C1BF6DFA010558839B89DEA9 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
+		ECD9A589F9821AEEA5E233B6 /* GateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GateView.swift; sourceTree = "<group>"; };
+		FE80A521554AF0D1A27A0832 /* MarkdownContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownContent.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		84BCFF196B0BFC67BE0C8B11 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A0009B54109BE436EE8FD523 /* sherpa-onnx in Frameworks */,
+				5EA29D4D42BADD286F8AA6AC /* ZIPFoundation in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		337CBCB5402CAF5C21301F28 /* KimiMobile */ = {
+			isa = PBXGroup;
+			children = (
+				8F5A77813BA8BE1CDEA4FF91 /* Assets.xcassets */,
+			);
+			path = KimiMobile;
+			sourceTree = "<group>";
+		};
+		44C738F08DB6D38F484B9561 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				22A3DC8B03DDBFA259D35BA5 /* APIClient.swift */,
+				9DF51CBB8C2453963915BCD9 /* ChatView.swift */,
+				C1BF6DFA010558839B89DEA9 /* ChatViewModel.swift */,
+				ECD9A589F9821AEEA5E233B6 /* GateView.swift */,
+				8AA79EF2AFD5486027DF3843 /* KeychainStore.swift */,
+				BAC03243C484E4F0A60D3F36 /* KimiMobileApp.swift */,
+				4C1B40782E3B28A363D64A08 /* MainView.swift */,
+				FE80A521554AF0D1A27A0832 /* MarkdownContent.swift */,
+				95E2F574DC08A594ED317DBE /* ModeBarView.swift */,
+				11C35AE5B10B0AD4F3AF4E64 /* ModelDownload.swift */,
+				A7227B01AE4216DE09C226F6 /* Models.swift */,
+				8D4FE5D2EE3BC811A45FC32E /* ProfileStore.swift */,
+				1027D597D8F8230B1650A91C /* SettingsView.swift */,
+				7D362F572FADE1EA108C1DD8 /* SpeechInput.swift */,
+				366C66205E99213F1EAA6408 /* SpeechOnnx.swift */,
+				0F34BF11BE82579FFF28E49E /* Theme.swift */,
+				921F7B36AF1CD434F1CA2978 /* WSService.swift */,
+			);
+			name = Sources;
+			path = KimiMobile/Sources;
+			sourceTree = "<group>";
+		};
+		A42B4E25884617EB6B3CE892 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3D13A3D0A130413D78ABD8A7 /* KimiMobile.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CE7478942280F50060F13A56 = {
+			isa = PBXGroup;
+			children = (
+				337CBCB5402CAF5C21301F28 /* KimiMobile */,
+				44C738F08DB6D38F484B9561 /* Sources */,
+				A42B4E25884617EB6B3CE892 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F1BDA1E36171D08E4E89CF20 /* KimiMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3C749A98FDDF2805D46CD1E1 /* Build configuration list for PBXNativeTarget "KimiMobile" */;
+			buildPhases = (
+				DA51F4A36D0B8ECB390FF853 /* Sources */,
+				FC4EA46922ABAFA92FDDCE5E /* Resources */,
+				84BCFF196B0BFC67BE0C8B11 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KimiMobile;
+			packageProductDependencies = (
+				646327FF3DB7498009D1E052 /* sherpa-onnx */,
+				A1E1C2FFE327BD5B863AD459 /* ZIPFoundation */,
+			);
+			productName = KimiMobile;
+			productReference = 3D13A3D0A130413D78ABD8A7 /* KimiMobile.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		27CBD9598F05C0DADEDF64F8 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					F1BDA1E36171D08E4E89CF20 = {
+						DevelopmentTeam = XXXXXXXXXX;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 7A65FE15691731DAD3E72FE0 /* Build configuration list for PBXProject "KimiMobile" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = CE7478942280F50060F13A56;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				74D13E750952F9CCB546C47D /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+				EF0747BD5146C9DEF8BD28FA /* XCRemoteSwiftPackageReference "sherpa-onnx" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A42B4E25884617EB6B3CE892 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F1BDA1E36171D08E4E89CF20 /* KimiMobile */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		FC4EA46922ABAFA92FDDCE5E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0946896E3DB4906D9C2F9BB8 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		DA51F4A36D0B8ECB390FF853 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E981F006CB47F6DF6F96E766 /* APIClient.swift in Sources */,
+				CB0434F1527FFE20CB2E68C4 /* ChatView.swift in Sources */,
+				CBE1496D5109D7D1F9397737 /* ChatViewModel.swift in Sources */,
+				7DD309845179733E41BA5BE7 /* GateView.swift in Sources */,
+				25FDEC6D1E96C5E4416E989B /* KeychainStore.swift in Sources */,
+				148DEB518B1A6FEDA87F03C2 /* KimiMobileApp.swift in Sources */,
+				89F4B0632DB5644A99FECF92 /* MainView.swift in Sources */,
+				DFDBDDF877F42BB6B8800C0F /* MarkdownContent.swift in Sources */,
+				F0E54E7F88EBB5036E1580A7 /* ModeBarView.swift in Sources */,
+				768FDE806FEC4DE53565AF71 /* ModelDownload.swift in Sources */,
+				29A43AA1D9EE23FE7D462EAE /* Models.swift in Sources */,
+				E03BF899E77063DFD3BBDDE7 /* ProfileStore.swift in Sources */,
+				58D8B102D1A7B7A412FC5AFD /* SettingsView.swift in Sources */,
+				2599F24B3E9665B047FAB179 /* SpeechInput.swift in Sources */,
+				76F66B4C489970E3192CF3B2 /* SpeechOnnx.swift in Sources */,
+				1C73F2B08D638DD108194415 /* Theme.swift in Sources */,
+				ADFA9B579CA360F4BC08EAAD /* WSService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		23BDDBC067BEBCC8B34B27CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 5;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = KimiMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.6.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.kimimobile;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6C2DB4141621DA881F71B22A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 5;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = KimiMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.6.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.kimimobile;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		785987E469358782B171F6CF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = XXXXXXXXXX;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B623BB07BE46C68F332C7FE8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = XXXXXXXXXX;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3C749A98FDDF2805D46CD1E1 /* Build configuration list for PBXNativeTarget "KimiMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				23BDDBC067BEBCC8B34B27CD /* Debug */,
+				6C2DB4141621DA881F71B22A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7A65FE15691731DAD3E72FE0 /* Build configuration list for PBXProject "KimiMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				785987E469358782B171F6CF /* Debug */,
+				B623BB07BE46C68F332C7FE8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		74D13E750952F9CCB546C47D /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.19;
+			};
+		};
+		EF0747BD5146C9DEF8BD28FA /* XCRemoteSwiftPackageReference "sherpa-onnx" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/k2-fsa/sherpa-onnx";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.13.7;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		646327FF3DB7498009D1E052 /* sherpa-onnx */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EF0747BD5146C9DEF8BD28FA /* XCRemoteSwiftPackageReference "sherpa-onnx" */;
+			productName = "sherpa-onnx";
+		};
+		A1E1C2FFE327BD5B863AD459 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74D13E750952F9CCB546C47D /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 27CBD9598F05C0DADEDF64F8 /* Project object */;
+}

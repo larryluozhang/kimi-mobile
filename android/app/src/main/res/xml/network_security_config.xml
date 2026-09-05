@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 自用客户端：主机档案由用户自定义（Tailscale 内网明文 HTTP，地址不固定），全局放行明文 -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

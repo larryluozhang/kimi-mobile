@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kimi Mobile</string>
+    <string name="copied">已复制到剪贴板</string>
+    <string name="empty_sessions">该工作区暂无会话\n点上方「新建会话」开始</string>
+</resources>

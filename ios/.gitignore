@@ -1,0 +1,12 @@
+# 构建产物
+build/
+DerivedData/
+.DS_Store
+xcuserdata/
+*.xcuserstate
+
+# 离线语音识别模型（体积大，发布时另行打包，不入 git）
+KimiMobile/Resources/models/
+
+# 模型改为按需下载后目录只留 .gitkeep（见 CHANGELOG 0.6.1）
+!KimiMobile/Resources/models/.gitkeep

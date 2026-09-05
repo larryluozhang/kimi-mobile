@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 品牌色（日夜间一致） -->
+    <color name="brand_blue">#3D7BFA</color>
+    <color name="brand_purple">#8B5CF6</color>
+
+    <!-- 主题色（夜间提亮） -->
+    <color name="primary">#AAB4FF</color>
+    <color name="on_primary">#1A1B45</color>
+    <color name="primary_container">#4549B8</color>
+    <color name="on_primary_container">#E3E6FF</color>
+
+    <!-- 背景 / 表面 -->
+    <color name="background">#12131C</color>
+    <color name="surface">#1C1E2A</color>
+    <color name="surface_variant">#262938</color>
+    <color name="divider">#2C2F40</color>
+
+    <!-- 文字 -->
+    <color name="text_primary">#E8EAF2</color>
+    <color name="text_secondary">#9BA0B5</color>
+
+    <!-- 聊天气泡 -->
+    <color name="bubble_user_start">#4E7BF5</color>
+    <color name="bubble_user_end">#7B5CF0</color>
+    <color name="bubble_assistant">#262A3C</color>
+
+    <!-- 代码块 -->
+    <color name="code_bg">#0D0F1C</color>
+    <color name="code_text">#E6E9F5</color>
+
+    <!-- 状态条 / 错误 -->
+    <color name="status_bg">#3A3320</color>
+    <color name="status_text">#E8C766</color>
+    <color name="error">#FF8A80</color>
+</resources>
