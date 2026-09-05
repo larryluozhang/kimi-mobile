@@ -1,100 +1,100 @@
-# 版本记录
+# Changelog
 
 ## 0.7.1 (2026-09-05)
-- 修复上下文用量显示：limit 取 WS maxContextTokens（>0 才采纳），否则兜底 1048576（1M，实测服务端快照值）；显示格式固定为「用量/上限 (百分比)」（如「上下文 690/1000k (0%)」），任何情况都带百分比；fmtTokens 小数格式化固定 US locale，修复「690.k」类显示错误
-- 新增「从这里分叉」：user 气泡长按弹菜单（复制 / 从这里分叉）；分叉逻辑：统计该消息之后已进入服务端历史的 user 消息数 n → :fork 全量克隆 → 对新会话 :undo {"count":n} 裁掉其后内容 → 跳转新会话（Api 新增 undoSession，POST /sessions/{id}:undo）；过程中状态条提示「分叉中…」，fork 失败 Toast，undo 失败保留新会话并提示内容未裁剪
+- Fixed context usage display: the limit now comes from WS maxContextTokens (adopted only when >0), otherwise falls back to 1048576 (1M, the observed server snapshot value); the display format is fixed to "usage/limit (percent)" (e.g. "Context 690/1000k (0%)") and always includes the percentage; fmtTokens decimal formatting is pinned to the US locale, fixing display glitches like "690.k"
+- Added "Fork from here": long-press a user bubble for a menu (Copy / Fork from here); fork logic: count n = number of user messages after this one that have entered the server-side history → :fork to fully clone → :undo {"count":n} on the new session to trim everything after it → jump to the new session (Api gains undoSession, POST /sessions/{id}:undo); a status bar shows "Forking..." during the process, fork failure shows a Toast, undo failure keeps the new session and warns that content was not trimmed
 
 ## 0.7.0 (2026-09-05)
-- 上下文用量显示：模式概要条右侧新增「上下文 23.5k/1000k (2%)」；数据源优先级 ① WS transcript.reset 快照 meta.agent.contextTokens/maxContextTokens ② transcript.ops 的 meta.merge agent.contextTokens ③ GET /sessions/{id} 的 usage.context_tokens/context_limit（实测可能全 0，非 0 才采纳，仅兜底）；busy 轮询（loadHistory）与 WS 事件时刷新，无数据时隐藏
-- 聊天页头部新增「分叉」按钮：与 /fork 命令同一代码路径（Api.sessionAction("fork") → 跳转新会话）
-- 新增 /rename（/title）命令：取首个空格后全部文本为新标题，POST /sessions/{id}/profile 顶层 title 字段（非 metadata.title）；为空 Toast 用法提示，成功 Toast + 同步更新顶部标题；/help 命令列表同步补充
+- Context usage display: added "Context 23.5k/1000k (2%)" on the right side of the mode summary bar; data source priority: 1. WS transcript.reset snapshot meta.agent.contextTokens/maxContextTokens 2. transcript.ops meta.merge agent.contextTokens 3. GET /sessions/{id} usage.context_tokens/context_limit (observed to sometimes be all 0; adopted only when non-zero, fallback only); refreshed on busy polling (loadHistory) and WS events; hidden when no data
+- Added a "Fork" button to the chat page header: same code path as the /fork command (Api.sessionAction("fork") → jump to the new session)
+- Added /rename (/title) command: everything after the first space becomes the new title, POST /sessions/{id}/profile with a top-level title field (not metadata.title); empty input shows a usage Toast, success shows a Toast and updates the top title; the /help command list was updated accordingly
 
 ## 0.6.2 (2026-09-05)
-- 修复 / 命令按首 token 匹配（/fork 带参数不再被当普通消息发送）
+- Fixed / commands to match on the first token (/fork with arguments is no longer sent as a regular message)
 
 ## 0.6.1 (2026-09-05)
-- 离线语音模型改按需下载（APK 体积从 ~213MB 回落到 ~35MB）：移除 assets/models/ 内置模型；SpeechOnnx 改为从 filesDir/models/zipformer-bilingual/ 加载（四文件齐全才算可用，OnlineRecognizer 传 null assetManager 按绝对路径加载）；设置页语音卡片新增"下载离线模型"按钮 + 可编辑下载地址输入框（存 Prefs voice_model_url，默认 GitHub Releases v0.6.1-models），HttpURLConnection 子线程下载 zip 到 filesDir/tmp 再解压（java.util.zip，按文件名匹配 4 件套，兼容 zip 内一层目录），进度（已下载 MB/总 MB）显示在按钮旁；ChatActivity 联动：onnx 强制模式模型未下载时点击麦克风提示"请先到设置页下载离线模型"，auto 模式模型缺失静默回退系统识别
-- 输入框斜杠命令支持：发送前拦截 / 开头文本，精确匹配（忽略大小写）/compact /archive /fork /abort /stop /new /help 走服务端会话动作 POST /api/v1/sessions/{id}:{action}（Api.sessionAction）或本地流程；/archive 成功返回会话列表，/fork 成功跳转新会话，/new 复用列表页建会话流程（工作区选择策略与 SessionsActivity 一致），/help 弹窗列出命令；其他 / 开头文本按普通 prompt 发送（与官方一致）；命令均在子线程执行，结果 Toast/状态条反馈
+- Offline speech model changed to on-demand download (APK size back down from ~213MB to ~35MB): removed the bundled assets/models/ model; SpeechOnnx now loads from filesDir/models/zipformer-bilingual/ (all four files must be present to be usable; OnlineRecognizer gets a null assetManager and loads by absolute path); the Settings speech card gains a "Download offline model" button + editable download URL field (stored in Prefs voice_model_url, defaulting to GitHub Releases v0.6.1-models); HttpURLConnection downloads the zip on a worker thread to filesDir/tmp then extracts it (java.util.zip, matching the 4-file set by filename, tolerating one wrapper directory inside the zip); progress (downloaded MB / total MB) shows next to the button; ChatActivity integration: in forced-onnx mode, tapping the mic without the model downloaded prompts "Please download the offline model in Settings first"; in auto mode a missing model silently falls back to system recognition
+- Slash command support in the input field: text starting with / is intercepted before sending; exact matches (case-insensitive) for /compact /archive /fork /abort /stop /new /help go through server session actions POST /api/v1/sessions/{id}:{action} (Api.sessionAction) or local flows; /archive returns to the session list on success, /fork jumps to the new session on success, /new reuses the list page's session-creation flow (workspace selection strategy matches SessionsActivity), /help shows a command list dialog; other /-prefixed text is sent as a regular prompt (consistent with the official behavior); all commands run on worker threads with Toast/status bar feedback
 
 ## 0.6.0 (2026-09-05)
-- 新增自载离线语音识别引擎 sherpa-onnx（1.13.7 本地 AAR，Apache-2.0）：内置中英双语流式模型 zipformer-bilingual-2023-02-20（int8 量化，约 190MB assets，不入 git）；AudioRecord 16kHz 单声道采集 + 流式识别，partial 显示在状态条，endpoint/停止时最终结果追加到输入框；识别中再点一次麦克风结束并冲刷尾段结果
-- 设置页新增"语音引擎"选项（auto/onnx/system，默认 auto）：auto 下模型存在时优先离线，模型缺失或初始化失败自动回退系统 SpeechRecognizer（旧路径保留）；onnx 强制离线、system 强制系统
-- 录音权限沿用现有 RECORD_AUDIO 申请逻辑
+- Added a bundled offline speech recognition engine: sherpa-onnx (1.13.7 local AAR, Apache-2.0); built-in bilingual Chinese-English streaming model zipformer-bilingual-2023-02-20 (int8 quantized, ~190MB in assets, not committed to git); AudioRecord 16kHz mono capture + streaming recognition, partials shown in the status bar, final result appended to the input field on endpoint/stop; tapping the mic again while recognizing ends recognition and flushes the tail result
+- Settings gains a "Speech engine" option (auto/onnx/system, default auto): in auto mode the offline engine is preferred when the model exists, with automatic fallback to the system SpeechRecognizer if the model is missing or initialization fails (old path retained); onnx forces offline, system forces the system engine
+- Recording permission reuses the existing RECORD_AUDIO request logic
 
 ## 0.5.2 (2026-09-02)
-- 问答卡片/弹窗内容区限高可滚动：题目和选项多时底部提交按钮始终可达（三端同步）
+- Question card/dialog content area is now height-capped and scrollable: the submit button at the bottom stays reachable when there are many questions and options (synced across all three platforms)
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示在发送侧：系统注入过滤器补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages on the send side: the system-injection filter now also covers the <notification prefix (synced across all three platforms)
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示在发送侧：系统注入过滤器补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages on the send side: the system-injection filter now also covers the <notification prefix (synced across all three platforms)
 
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示在发送侧：系统注入过滤器补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages on the send side: the system-injection filter now also covers the <notification prefix (synced across all three platforms)
 ## 0.5.0 (2026-09-02)
-- 新增问答支持（pending_interaction="question" 场景）：服务端发 AskUserQuestion 时，ChatActivity 每 5s 轮询 GET /questions?status=pending（与审批共用 5s 轮询定时器），有 pending 时弹窗：每题渲染 RadioGroup 单选（label — description），allow_other 时追加"其他（自定义回答）"+文本输入；提交 {"kind":"single","option_id":...} / {"kind":"other","text":...}；"跳过"按钮发送 {"kind":"skipped"}；未作答完不关闭弹窗（手动接管提交按钮校验）；多条 pending 逐条处理（同审批）
+- Added question support (pending_interaction="question" scenario): when the server issues AskUserQuestion, ChatActivity polls GET /questions?status=pending every 5s (sharing the 5s poll timer with approvals); when a pending item exists, a dialog opens: each question renders a RadioGroup single-choice list (label — description), with an additional "Other (custom answer)" + text input when allow_other is set; submitting sends {"kind":"single","option_id":...} / {"kind":"other","text":...}; a "Skip" button sends {"kind":"skipped"}; the dialog cannot be dismissed until all questions are answered (manual validation wired to the submit button); multiple pending items are handled one by one (same as approvals)
 
 ## 0.4.9 (2026-08-21)
-- 设置页底部显示当前版本号（versionName + versionCode，取自 BuildConfig）
+- The Settings page footer now shows the current version (versionName + versionCode, from BuildConfig)
 
 ## 0.4.8 (2026-08-20)
-- 修复对话顺序错乱：loadHistory 调和此前把本地回显/排队中/执行中气泡无条件追加在列表末尾，早于最新历史条目时顺序错乱；改为按 timeMillis 升序排列（历史用 created_at，queued/active 气泡用队列接口的 created_at，本地回显用发送时间，无时间戳的排最后）再 setAll
-- Api.listQueuedPrompts 连 created_at 一起解析：新增 QueuedPrompt(text, createdAt)，PromptQueue.queued/active 均改为 QueuedPrompt
-- 空闲也兜底调和：历史轮询改为前台常驻（busy 15s / 空闲 60s，onPause 停止，防止叠加）；WS 稳定后空闲会话的徽标状态（排队/执行中/未送达）不再冻结
-- 新增调和诊断日志（tag "Reconcile"）：history 条数、queue/active 摘要、每个本地回显的判定（历史确认/服务端队列/执行中/未送达/POST 在途）
+- Fixed out-of-order conversations: loadHistory reconciliation previously appended local echo / queued / executing bubbles unconditionally to the end of the list, scrambling the order when they were older than the latest history entry; now everything is sorted by timeMillis ascending (history uses created_at, queued/active bubbles use the queue endpoint's created_at, local echoes use the send time, items without a timestamp go last) before setAll
+- Api.listQueuedPrompts now also parses created_at: added QueuedPrompt(text, createdAt); both PromptQueue.queued and active are now QueuedPrompt
+- Fallback reconciliation also when idle: history polling now runs continuously in the foreground (15s while busy / 60s while idle, stopped in onPause to prevent stacking); once WS is stable, badge states (queued/executing/undelivered) of idle sessions no longer freeze
+- Added reconciliation diagnostic logs (tag "Reconcile"): history count, queue/active summary, and the verdict for each local echo (confirmed in history / in server queue / executing / undelivered / POST in flight)
 
 ## 0.4.7 (2026-08-20)
-- 修复"turn 进行中进入会话看不到任何进展"（v0.37.2 服务端：turn 进行中才订阅的 WS 客户端收不到该 turn 的 transcript.ops，含流式内容和 turn.upsert 完成事件）：
-  - transcript.reset 分支解析 payload.snapshot.meta.agent.phase 实时阶段并回调 onPhase（多 agent 的多个 reset 里取 main：agent_id=="main" 或带 meta 的），进会话立即显示"工作中/正在思考"（新增 tool_call 阶段展示）
-  - busy 期间每 15s 轮询一次 loadHistory（turnActive 时启动，onPause 停止，防止叠加定时器）；轮询中检测 busy 消失（data.active 为空且队列清空）→ 立即统一刷新；onWorkChanged(false)/phase ended 也兜底刷新。进行中的 turn 完成后 15s 内可见回复，不再依赖收不到的 turn.upsert
-- 执行中不再叫"排队中"：GET /prompts?status=queued 的 data.active 为当前正在执行的 prompt（v0.37.2，不在 queued[] 里）；与本地回显匹配 → 标"执行中"小字（ChatMsg 新增 active 字段），重进会话无回显时渲染 active-0 服务端气泡；active 中的消息不标"未送达"
-- Api.listQueuedPrompts 返回类型改为 PromptQueue(queued, active)
+- Fixed "no progress visible when entering a session mid-turn" (v0.37.2 server: a WS client that subscribes mid-turn receives none of that turn's transcript.ops, including streaming content and the turn.upsert completion event):
+  - The transcript.reset branch parses payload.snapshot.meta.agent.phase for the real-time phase and calls back onPhase (among multiple resets from multiple agents, pick main: agent_id=="main" or one carrying meta), immediately showing "working/thinking" on session entry (new tool_call phase display)
+  - Poll loadHistory every 15s while busy (started when turnActive, stopped in onPause to prevent stacking timers); when polling detects busy has cleared (data.active is empty and the queue is drained) → immediately do a unified refresh; onWorkChanged(false) / phase ended also trigger a fallback refresh. The reply becomes visible within 15s of the in-flight turn completing, no longer relying on the undeliverable turn.upsert
+- "Executing" is no longer called "queued": GET /prompts?status=queued's data.active is the currently executing prompt (v0.37.2, not inside queued[]); when it matches a local echo → mark it with an "executing" sub-label (ChatMsg gains an active field); when re-entering a session without a local echo, render the active-0 server bubble; messages in active are never marked "undelivered"
+- Api.listQueuedPrompts return type changed to PromptQueue(queued, active)
 
 ## 0.4.6 (2026-08-20)
-- 修复会话列表"运行中"徽标陈旧：resumed 期间每 30s 自动 loadAll()（onPause 停止；loadAll 只读，不打断下拉刷新/输入）
-- 排队消息被服务端丢弃的兜底（上游 bug #3127：幻影 busy 下排队 prompt 被静默丢弃）：既不在历史也不在服务端队列、且已存在超过 60s 的本地回显 → 标记"未送达（服务端已丢弃）"（红色警示，不再显示"排队中"）；POST 在途（<60s）正常保留
-- ChatMsg 新增 undelivered 字段；queued-* 气泡行为不变（每轮按服务端队列重建，队列与历史都没有即自然消失）
+- Fixed stale "running" badges in the session list: auto loadAll() every 30s while resumed (stopped in onPause; loadAll is read-only and does not interrupt pull-to-refresh or typing)
+- Fallback for queued messages dropped by the server (upstream bug #3127: under phantom-busy, queued prompts are silently dropped): a local echo that is in neither history nor the server queue and has existed for over 60s → mark "undelivered (dropped by server)" (red warning, no longer shows "queued"); POSTs still in flight (<60s) are kept as-is
+- ChatMsg gains an undelivered field; queued-* bubble behavior is unchanged (rebuilt from the server queue each round; disappears naturally when in neither queue nor history)
 
 ## 0.4.4 (2026-08-20)
-- 修复“排队消息重进会话/杀掉 app 后消失”：以服务端队列为真相来源，loadHistory 同时拉 GET /prompts?status=queued，队列中的消息渲染为带“排队中”小字标记的用户气泡（与本地回显同文本去重，只显示一份）
-- pendingLocal 调和升级：历史已确认 → 移除；服务端队列中存在 → 转由服务端队列气泡渲染；既不在历史也不在队列（POST 在途）→ 保留
-- 队列接口拉取失败时降级为旧行为（保留全部未确认回显），不阻塞历史加载
-- POST 返回 queued 时本地回显立即打“排队中”标记（MessageAdapter 新增 markQueued；ChatMsg 新增 queued 字段）
+- Fixed "queued messages disappear after re-entering a session / killing the app": the server queue is now the source of truth; loadHistory also fetches GET /prompts?status=queued, and queued messages render as user bubbles with a "queued" sub-label (deduplicated against local echoes with identical text — only one copy is shown)
+- pendingLocal reconciliation upgraded: confirmed in history → removed; present in the server queue → rendered by the server-queue bubble instead; in neither (POST in flight) → kept
+- When the queue endpoint fetch fails, degrade to the old behavior (keep all unconfirmed echoes) without blocking history loading
+- When POST returns queued, the local echo is immediately marked "queued" (MessageAdapter gains markQueued; ChatMsg gains a queued field)
 
 ## 0.4.3 (2026-08-20)
-- 修复“发送的消息消失”：busy 时服务端返回 queued 且消息暂不进历史，loadHistory 的 setAll 会抹掉乐观回显 → 维护 pendingLocal，未确认回显追加在历史末尾，重连/刷新后仍保留；历史中出现相同文本的 user 消息后自动确认移除
-- sendPrompt 返回服务端 status：queued 时状态条提示“排队中，等待当前任务完成…”
-- 发送失败时撤回乐观回显（MessageAdapter 新增 removeById）
-- 新增工具工作流水：解析 WS frame.upsert 的 kind=tool 帧（display.summary ?: inputText ?: input，截断 80 字符），消息列表插入小字灰色临时条目（running 🔧 / done ✓），状态条显示“工作中：工具名”；turn 结束后随 loadHistory 自然清除
+- Fixed "sent messages disappearing": when busy, the server returns queued and the message temporarily stays out of history, so loadHistory's setAll would wipe the optimistic echo → now maintains pendingLocal; unconfirmed echoes are appended after the history and survive reconnects/refreshes; they are confirmed and removed automatically once a user message with identical text appears in history
+- sendPrompt returns the server status: when queued, the status bar shows "Queued, waiting for the current task to finish..."
+- On send failure, the optimistic echo is withdrawn (MessageAdapter gains removeById)
+- Added tool activity feed: parses WS frame.upsert frames with kind=tool (display.summary ?: inputText ?: input, truncated to 80 chars), inserting small gray temporary entries into the message list (running 🔧 / done ✓); the status bar shows "Working: tool name"; entries are cleared naturally with loadHistory when the turn ends
 
 ## 0.4.2 (2026-08-15)
-- 修复“会话丢失”：listSessions 不再带 busy=false，运行中/待审批会话恢复可见，标题旁显示“运行中”标记
-- 新增工具审批：进会话后每 5 秒轮询 pending approvals（仅前台时），弹窗显示工具名+摘要，支持批准/拒绝，多条逐条处理
-- 默认工作区改为“上次选择 → session_count 最大的工作区 → 第一个”（旧逻辑写死 Linux 路径，Mac/iOS 主机上误落到 Downloads）
-- WorkspaceItem 新增 session_count 解析
+- Fixed "sessions disappearing": listSessions no longer passes busy=false, so running/pending-approval sessions are visible again, with a "running" marker next to the title
+- Added tool approvals: after entering a session, poll pending approvals every 5 seconds (foreground only); a dialog shows the tool name + summary with approve/reject options; multiple items handled one by one
+- Default workspace changed to "last selected → workspace with the largest session_count → the first one" (the old logic hardcoded a Linux path and wrongly landed on Downloads on Mac/iOS hosts)
+- WorkspaceItem now parses session_count
 
 ## 0.4.1 (2026-08-15)
-- 模式状态机制对齐官方 web UI：按会话本地持久化（SharedPreferences），发消息时 prompts 顶层随带模式字段（plan_mode/swarm_mode/permission_mode/model）
-- 背景：服务端 v0.35.0 GET /profile 不返回真实 agent_config，回显不可信
+- Mode state mechanism aligned with the official web UI: persisted locally per session (SharedPreferences); mode fields (plan_mode/swarm_mode/permission_mode/model) ride along at the top level of prompts when sending
+- Background: server v0.35.0's GET /profile does not return the real agent_config, so its echo cannot be trusted
 
 ## 0.4 (2026-08-15)
-- 会话模式栏：计划模式/Swarm 开关、权限模式（手动/自动/YOLO）、模型切换、目标模式（设定/暂停/恢复/取消）
-- 修复：明文 HTTP 白名单写死 146 地址导致无法添加其它主机 → 全局放行（自用 tailnet 内网）
-- 修复：门控页加常驻"服务器设置"入口，防止连不上时被锁死
-- 修复：Tailscale 调起（Android 11+ 包可见性 queries 声明）+ 系统 VPN 设置兜底
+- Session mode bar: plan mode / Swarm toggle, permission mode (manual/auto/YOLO), model switching, goal mode (set/pause/resume/cancel)
+- Fix: the cleartext-HTTP whitelist hardcoded the 146 address, making it impossible to add other hosts → now allowed globally (personal use inside a tailnet)
+- Fix: added a permanent "Server settings" entry on the gate page to avoid being locked out when the connection fails
+- Fix: Tailscale launch (Android 11+ package visibility queries declaration) + system VPN settings as fallback
 
 ## 0.3.2 (2026-08-15)
-- 修复用户气泡文字横向截断（布局约束）
-- 修复最后一条消息被输入框遮挡（RecyclerView padding + 滚动时机）
-- 修复历史消息倒序（API 返回最新在前，需反转）
+- Fixed user bubble text being horizontally truncated (layout constraints)
+- Fixed the last message being obscured by the input field (RecyclerView padding + scroll timing)
+- Fixed history messages in reverse order (the API returns newest first and must be reversed)
 
 ## 0.3 (2026-08-15)
-- 过滤系统注入的幻影用户消息（<system-reminder> / <cron-fire 开头的块）
+- Filter system-injected phantom user messages (blocks starting with <system-reminder> / <cron-fire)
 
 ## 0.2 (2026-08-14)
-- Material Design 3 美化：新图标（蓝紫渐变+气泡K）、日夜双主题、splash、聊天气泡重设计、长按复制、代码块渲染
+- Material Design 3 polish: new icon (blue-purple gradient + bubble K), day/night themes, splash screen, redesigned chat bubbles, long-press to copy, code block rendering
 
 ## 0.1 (2026-08-14)
-- 首版：Tailscale 门控、会话列表+工作区切换、WS 流式聊天（transcript.ops）、语音输入（SpeechRecognizer zh-CN）、多主机档案
+- First release: Tailscale gating, session list + workspace switching, WS streaming chat (transcript.ops), voice input (SpeechRecognizer zh-CN), multi-host profiles

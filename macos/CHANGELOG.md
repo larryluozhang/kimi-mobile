@@ -1,139 +1,140 @@
-# 版本记录
+# Changelog
 
 ## 0.7.1 (2026-09-05)
-- 上下文用量显示修复：格式固定「用量/上限 (百分比)」，任何情况都带百分比；
-  上限取 WS maxContextTokens（>0 才用），否则兜底 1048576（1M）；
-  小数格式化固定 Locale.US，修掉某些 locale 下出现的「690.k」类格式错误
-- 从某条消息分叉：user 气泡右键菜单新增「从这里分叉」→ 统计该消息之后的 user 消息数 n
-  （未送达回显不计入）→ :fork 全量克隆 → 新会话 :undo {"count":n} → 切到新会话；
-  undo 失败（如 40911 无可 undo）不阻断切换，如实反馈；/help 同步补充说明
-- Api.kt 新增 undoSession（POST /sessions/{id}:undo，body count 字段）
+- Fix right-click menu showing only Copy: SelectionContainer's built-in text menu shadowed the Fork option; use LocalTextContextMenu with a custom menu (Copy + Fork From Here)
+- Context usage display fix: format pinned to "usage/limit (percent)", always including the percentage;
+  the limit comes from WS maxContextTokens (used only when >0), otherwise falls back to 1048576 (1M);
+  decimal formatting pinned to Locale.US, fixing "690.k"-style formatting errors seen under some locales
+- Fork from a message: the user bubble right-click menu gains "Fork from here" → count n = user messages after this one
+  (undelivered echoes are not counted) → :fork full clone → :undo {"count":n} on the new session → switch to the new session;
+  undo failure (e.g. 40911 nothing to undo) does not block the switch and is reported truthfully; /help updated accordingly
+- Api.kt gains undoSession (POST /sessions/{id}:undo, body count field)
 
 ## 0.7.0 (2026-09-05)
-- 上下文使用量显示：会话头部标题旁展示「23.5k/1000k (2%)」；数据源优先级
-  ① WS transcript.reset 快照 payload.snapshot.meta.agent 的 contextTokens/maxContextTokens（与 phase 同层取）；
-  ② transcript.ops meta.merge 的 agent.contextTokens（与 phase 独立处理，无 phase 也取）；
-  ③ 兜底 GET /sessions/{id} 的 usage.context_tokens/context_limit（实测可能全 0，全 0 视为无数据不显示）；
-  切会话时重置，WS 上报覆盖兜底值
-- 话题分叉按钮：会话头部工具区新增「分叉」按钮，与 /fork 命令同一路径
-  （Api.forkSession + 成功后切到新会话；/fork 分支重构为复用同一 doFork）
-- /rename（或 /title）命令：POST /sessions/{id}/profile，body 顶层 title 字段；
-  取首个空格后全部剩余文本为新标题，空则提示用法，成功后刷新侧边栏/标题；/help 同步补充
-- Api.kt 新增 renameSession / getSessionUsage
+- Context usage display: shows "23.5k/1000k (2%)" next to the title in the session header; data source priority:
+  1. contextTokens/maxContextTokens from the WS transcript.reset snapshot payload.snapshot.meta.agent (read alongside phase);
+  2. agent.contextTokens from transcript.ops meta.merge (handled independently of phase; read even without phase);
+  3. fallback GET /sessions/{id} usage.context_tokens/context_limit (observed to sometimes be all 0; all-0 is treated as no data and hidden);
+  reset on session switch; WS reports override the fallback value
+- Fork button: the session header toolbar gains a "Fork" button on the same path as the /fork command
+  (Api.forkSession + switch to the new session on success; the /fork branch was refactored to reuse the same doFork)
+- /rename (or /title) command: POST /sessions/{id}/profile with a top-level title field in the body;
+  everything after the first space becomes the new title; empty input shows a usage hint; the sidebar/title refreshes on success; /help updated accordingly
+- Api.kt gains renameSession / getSessionUsage
 
 ## 0.6.2 (2026-09-05)
-- 修复 / 命令按首 token 匹配（/fork 带参数不再被当普通消息发送）
+- Fixed / commands to match on the first token (/fork with arguments is no longer sent as a regular message)
 
 ## 0.6.1 (2026-09-05)
-- 输入框支持 / 斜杠命令（发送前拦截，精确匹配忽略大小写；未识别的 / 开头文本仍当普通 prompt 发送）：
-  /compact → POST /sessions/{id}:compact 压缩历史（空历史服务端报 40910，以错误气泡反馈）；
-  /archive → POST :archive 归档后清 activeSessionId 并刷新侧边栏；
-  /fork → POST :fork 成功后切换到返回的新会话；
-  /abort（或 /stop）→ POST :abort 中断当前 turn；/new → 同侧边栏「新会话」流程；/help → 弹出命令说明
-- Api.kt 新增 compactSession / archiveSession / forkSession（fork 返回新会话 id）
+- Slash command support in the input field (intercepted before sending; exact case-insensitive match; unrecognized /-prefixed text is still sent as a regular prompt):
+  /compact → POST /sessions/{id}:compact to compress history (empty history returns server error 40910, surfaced as an error bubble);
+  /archive → POST :archive, then clears activeSessionId and refreshes the sidebar;
+  /fork → POST :fork, switching to the returned new session on success;
+  /abort (or /stop) → POST :abort to interrupt the current turn; /new → same flow as the sidebar "New session"; /help → command list popup
+- Api.kt gains compactSession / archiveSession / forkSession (fork returns the new session id)
 
 ## 0.5.2 (2026-09-02)
-- 问答卡片/弹窗内容区限高可滚动：题目和选项多时底部提交按钮始终可达（三端同步）
+- Question card/dialog content area is now height-capped and scrollable: the submit button at the bottom stays reachable when there are many questions and options (synced across all three platforms)
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示：isPhantomUserText 补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示：isPhantomUserText 补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
 
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示：isPhantomUserText 补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages: isPhantomUserText now also covers the <notification prefix (synced across all three platforms)
 ## 0.5.0 (2026-09-02)
-- 审批 UI：轮询 GET /sessions/{id}/approvals?status=pending（5s 一轮），agent 卡审批时显示审批卡片（工具名/动作/摘要 + 批准/拒绝按钮），
-  POST /approvals/{approval_id} 提交 decision（approved/rejected）；agent 在 manual 权限下发起需审批工具调用时挂起，本端决策后服务端恢复运行
-- 问答 UI：轮询 GET /sessions/{id}/questions?status=pending（5s 一轮），单选 RadioButton 组渲染 questions[]，allow_other 时追加"其他"+文本输入框，
-  "跳过"按钮；answers 为 问题id → 答案对象 的映射（kind=single 带 option_id / other 带 text / skipped）；
-  POST /questions/{question_id} 提交后 agent 恢复运行，turn 继续
-- 中断按钮：busy 时聊天头部显示"停止"按钮，调 POST /sessions/{id}:abort（实测返回 {"aborted":true}）中断当前 turn
+- Approval UI: polls GET /sessions/{id}/approvals?status=pending (every 5s); when the agent is stuck on approval, an approval card appears (tool name/action/summary + approve/reject buttons);
+  POST /approvals/{approval_id} submits the decision (approved/rejected); when the agent issues an approval-requiring tool call under manual permission it suspends, and the server resumes once this client decides
+- Question UI: polls GET /sessions/{id}/questions?status=pending (every 5s); renders questions[] as a single-choice RadioButton group, appending "Other" + a text field when allow_other is set,
+  plus a "Skip" button; answers is a map of question id → answer object (kind=single with option_id / other with text / skipped);
+  the agent resumes and the turn continues after POST /questions/{question_id}
+- Interrupt button: a "Stop" button appears in the chat header while busy, calling POST /sessions/{id}:abort (observed to return {"aborted":true}) to interrupt the current turn
 
 ## 0.4.9 (2026-08-21)
-- 设置窗口底部显示当前版本号：build.gradle.kts 的 version 为唯一来源，
-  构建时由 generateVersionProperties 任务写入资源 version.properties，
-  运行时 AppVersion 从 classpath 读取（读取失败显示 "unknown"）
+- The Settings window footer now shows the current version: build.gradle.kts's version is the single source of truth,
+  written at build time by the generateVersionProperties task into the version.properties resource,
+  and read from the classpath at runtime by AppVersion (shows "unknown" if the read fails)
 
 ## 0.4.8 (2026-08-20)
-- 修复对话顺序错乱：回显/排队中/执行中气泡原先无条件追加到列表末尾，现携带时间戳
-  （ChatMessage.timeMillis；Api.QueuedPrompt 带 created_at），reconcile 输出按时间排序（旧→新）
-- 徽标错乱排查：reconcileHistory 增加 RECONCILE 诊断日志（调和输入 + 每个回显的判定结果）；
-  refreshHistory/进会话加载增加跨会话竞态防护（拉取期间切走则丢弃结果）
-- 空闲会话也每 60s 兜底调和一次（busy 时仍 15s）——WS 探活修复后不再有重连刷新，
-  空闲会话的排队/执行中/未送达状态只能靠周期调和保持新鲜
+- Fixed out-of-order conversations: echo/queued/executing bubbles used to be appended unconditionally to the end of the list; they now carry timestamps
+  (ChatMessage.timeMillis; Api.QueuedPrompt carries created_at), and the reconcile output is sorted by time (old → new)
+- Badge-mismatch diagnostics: reconcileHistory gains RECONCILE diagnostic logs (reconcile inputs + the verdict for each echo);
+  refreshHistory/session-entry loading gains cross-session race protection (results are discarded if the user switched sessions during the fetch)
+- Idle sessions are also reconciled every 60s as a fallback (still 15s while busy) — after the WS liveness fix there are no more reconnect-triggered refreshes,
+  so the queued/executing/undelivered states of idle sessions can only stay fresh via periodic reconciliation
 
 ## 0.4.7 (2026-08-20)
-- 修复打开正在运行的会话界面死寂（实测 v0.37.2：turn 进行中才订阅的 WS 收不到该 turn 的
-  任何 transcript.ops，连 turn.upsert 完成事件都没有）：
-  WsClient 处理 transcript.reset 时解析 payload.snapshot.meta.agent.phase 实时阶段
-  （running/streaming/tool_call/ended…；多 agent 多条 reset 只取 main agent——
-  agent_id=="main" 或无 agent_id 且 meta 非空），MainScreen 据此立即亮"工作中"状态并落 busy
-- busy 期间每 15s 轮询历史（含队列调和）：进行中的 turn 完成时 15s 内即可看到回复，
-  不再依赖收不到的 turn.upsert；onWorkChanged(false) 立即做最后一次对齐，
-  轮询发现服务端已无 active/queued（busy 消失但事件缺失）时落 busy 并做最后一次对齐；
-  轮询为 LaunchedEffect(sessionId)，同一会话不会叠加多个定时器
-- 执行中不再叫"排队中"：GET /prompts?status=queued 的 data.active 是当前执行中的 prompt
-  （v0.37.2 起不在 queued[] 里），Api.listQueuedPrompts 返回 PromptQueue(queued, active)；
-  调和时 active 文本匹配本地回显 → 标"执行中"（样式随"排队中"），active 中的消息绝不标"未送达"；
-  无本地回显的 active 条目（其他端提交）重建为"执行中"气泡
+- Fixed the dead-silent UI when opening a session that is already running (observed on v0.37.2: a WS client that subscribes mid-turn receives none of that turn's
+  transcript.ops, not even the turn.upsert completion event):
+  WsClient parses payload.snapshot.meta.agent.phase for the real-time phase when handling transcript.reset
+  (running/streaming/tool_call/ended...; among multiple resets from multiple agents, only the main agent is used —
+  agent_id=="main" or no agent_id with non-empty meta), and MainScreen immediately lights up the "working" state and sets busy accordingly
+- Poll history every 15s while busy (including queue reconciliation): the reply becomes visible within 15s of the in-flight turn completing,
+  no longer relying on the undeliverable turn.upsert; onWorkChanged(false) triggers one final alignment immediately,
+  and when polling finds the server has no active/queued left (busy cleared but the event was missed), it sets busy off and does one final alignment;
+  polling is LaunchedEffect(sessionId), so timers never stack within the same session
+- "Executing" is no longer called "queued": GET /prompts?status=queued's data.active is the currently executing prompt
+  (no longer inside queued[] since v0.37.2); Api.listQueuedPrompts returns PromptQueue(queued, active);
+  during reconciliation an active text matching a local echo → marked "executing" (styled like "queued"); messages in active are never marked "undelivered";
+  active entries without a local echo (submitted from another client) are rebuilt as "executing" bubbles
 
 ## 0.4.6 (2026-08-20)
-- 修复侧边栏 busy 徽标陈旧：会话列表只在进会话/turn 结束时刷新，其他会话的"运行中"标记会停留在旧状态；
-  MainScreen 增加 30s 定时器周期调用 loadSidebar（historyLoading/加载中途跳过，不打断当前 UI），
-  WS onOpen 重连成功时也顺带刷一次侧边栏
-- 排队消息被服务端丢弃的兜底（上游 MoonshotAI/kimi-code#3127：幻影 busy 下排队 prompt 被静默丢弃）：
-  PendingEcho 记录创建时间戳；调和时回显既不在历史也不在服务端队列且已存在超 60s → 标记"未送达（服务端已丢弃）"
-  红色警示，不再显示"排队中"假状态；POST 在途（<60s）仍原样保留，queued 状态以服务端队列为准；
-  队列重建气泡（queued-$sessionId-hash）本轮队列与历史都没有时直接消失（真在队列下轮会重建）
+- Fixed stale busy badges in the sidebar: the session list only refreshed on session entry/turn end, so other sessions' "running" markers stayed in an old state;
+  MainScreen adds a 30s timer that periodically calls loadSidebar (skipped while historyLoading/mid-load, without interrupting the current UI),
+  and the sidebar also refreshes once on WS onOpen reconnect
+- Fallback for queued messages dropped by the server (upstream MoonshotAI/kimi-code#3127: under phantom-busy, queued prompts are silently dropped):
+  PendingEcho records its creation timestamp; during reconciliation, an echo in neither history nor the server queue that has existed for over 60s → marked "undelivered (dropped by server)"
+  as a red warning, no longer showing the fake "queued" state; POSTs still in flight (<60s) are kept as-is; the queued state follows the server queue;
+  queue-rebuilt bubbles (queued-$sessionId-hash) disappear directly when in neither queue nor history this round (if truly queued they will be rebuilt next round)
 
 ## 0.4.5 (2026-08-20)
-- 修复 WS 每 ~40s 被看门狗断开重连（累计上万次，每次重连全量拉历史）：
-  实测 v0.37.2 服务端在非 loopback（Tailscale IP）连接上不发心跳 ping，
-  原 35s 无包即断的被动判活不适用；改为空闲 15s 主动发协议级 ping(0x9) 探活，
-  35s 仍无任何帧才判定掉线重连（已用 --wsprobe 探针验证连接可稳定保持）
+- Fixed the watchdog disconnecting and reconnecting the WS every ~40s (tens of thousands of times cumulatively, each reconnect pulling full history):
+  observed on v0.37.2 that the server does not send heartbeat pings on non-loopback (Tailscale IP) connections,
+  so the original passive liveness check of "disconnect after 35s of silence" does not apply; now a protocol-level ping (0x9) is sent proactively after 15s of idleness,
+  and only 35s with no frames at all is judged as a dropout triggering reconnect (verified stable with the --wsprobe probe)
 
 ## 0.4.4 (2026-08-20)
-- 修复切换会话排队回显被永久抹掉：pendingEchoes 按 sessionId 隔离，LaunchedEffect 不再无脑 clear
-- 以服务端队列为真相来源：新增 GET /sessions/{id}/prompts?status=queued（Api.listQueuedPrompts），
-  历史刷新（进会话、turn 结束、WS 重连）时同时拉取队列调和——
-  历史已确认的回显移除；队列中的显示为“排队中”气泡（本地回显与队列条目同文本去重只显示一份）；
-  既不在历史也不在队列的回显（POST 在途）保留；其他端提交/重启前排队的消息也能重建出“排队中”气泡
-- 排队中 user 气泡带“排队中”小标记
+- Fixed queued echoes being permanently wiped on session switch: pendingEchoes are now isolated per sessionId; LaunchedEffect no longer blindly clears them
+- The server queue is now the source of truth: added GET /sessions/{id}/prompts?status=queued (Api.listQueuedPrompts);
+  history refreshes (session entry, turn end, WS reconnect) also fetch the queue for reconciliation —
+  echoes confirmed in history are removed; ones in the queue show as "queued" bubbles (local echoes and queue entries with identical text are deduplicated to a single copy);
+  echoes in neither history nor queue (POST in flight) are kept; messages queued from other clients or before a restart can also be rebuilt as "queued" bubbles
+- Queued user bubbles carry a small "queued" marker
 
 ## 0.4.3 (2026-08-20)
-- 修复排队回显被抹：sendPrompt 返回 status（running/queued）；本地回显登记为 pendingEchoes，
-  历史刷新（turn 结束、WS 重连）按文本确认移除，未确认的保留在列表末尾；发送失败移除回显
-- queued 时头部状态区提示“排队中…”
-- 工具流水可见：WS frame.upsert 中 kind="tool" 的帧渲染为工具活动条目（🔧 名称: 摘要，done 标 ✓），
-  摘要取 display.summary ?: inputText ?: input，去换行截断 80 字符
+- Fixed queued echoes being wiped: sendPrompt returns status (running/queued); local echoes are registered as pendingEchoes,
+  confirmed by text and removed on history refresh (turn end, WS reconnect), with unconfirmed ones kept at the end of the list; echoes are removed on send failure
+- The header status area shows "Queued..." when queued
+- Tool activity is now visible: WS frame.upsert frames with kind="tool" render as tool activity entries (🔧 name: summary, ✓ when done),
+  with the summary taken from display.summary ?: inputText ?: input, newlines stripped and truncated to 80 chars
 
 ## 0.4.2 (2026-08-15)
-- 修复会话丢失：listSessions 不再带 busy=false（运行中/卡审批会话被过滤）
-- 会话列表 busy=true 显示“运行中”标记（小圆点 + 文案）
+- Fixed sessions disappearing: listSessions no longer passes busy=false (running/approval-stuck sessions were being filtered out)
+- Sessions with busy=true in the session list show a "running" marker (dot + label)
 
 ## 0.4 (2026-08-15)
-- 会话模式栏：计划/Swarm 开关、权限模式、模型下拉、目标模式（创建/暂停/恢复/取消）
-- 模式状态按官方机制实现：按会话本地持久化（config.properties），prompts 顶层随带模式字段
-- 服务端发现：GET /profile 不回传真实 agent_config（v0.35.0 硬编码空壳）
-- 新增 --e2e-profile 自检入口
+- Session mode bar: plan/Swarm toggle, permission mode, model dropdown, goal mode (create/pause/resume/cancel)
+- Mode state implemented per the official mechanism: persisted locally per session (config.properties); mode fields ride along at the top level of prompts
+- Server finding: GET /profile does not return the real agent_config (v0.35.0 hardcodes an empty shell)
+- Added the --e2e-profile self-check entry
 
 ## 0.3.1 (2026-08-15)
-- 修复历史消息倒序（API 返回最新在前，需反转）
-- Enter 发送 / Shift+Enter 换行
+- Fixed history messages in reverse order (the API returns newest first and must be reversed)
+- Enter to send / Shift+Enter for newline
 
 ## 0.3 (2026-08-15)
-- 业务错误（HTTP 200 包 code!=0）显示红色错误气泡
-- 幻影消息过滤（<system-reminder> 等系统注入 user 消息）
-- WS 帧级日志；--e2e 全链路自检
+- Business errors (HTTP 200 wrapping code!=0) shown as red error bubbles
+- Phantom message filtering (system-injected user messages such as <system-reminder>)
+- WS frame-level logging; --e2e end-to-end self-check
 
 ## 0.2 (2026-08-14)
-- 全链路文件日志 ~/.kimi-mobile/app.log
-- 门控重试循环 catch Throwable；启动自动选中最近会话建立 WS
+- Full-pipeline file logging at ~/.kimi-mobile/app.log
+- Gate retry loop catches Throwable; on startup the most recent session is auto-selected and a WS connection is established
 
 ## 0.1 (2026-08-14)
-- 首版（Compose Multiplatform Desktop）
-- 手写 NIO 传输层（MiniHttp/WsClient）绕过本机 OCLP 的 JVM 网络栈缺陷（java.net/OkHttp 连得上读不到数据）
-- Tailscale 门控、会话/工作区、WS 流式聊天、多主机档案
+- First release (Compose Multiplatform Desktop)
+- Hand-written NIO transport layer (MiniHttp/WsClient) working around this machine's OCLP JVM network stack defect (java.net/OkHttp connect but read no data)
+- Tailscale gating, sessions/workspaces, WS streaming chat, multi-host profiles
