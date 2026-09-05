@@ -1,85 +1,85 @@
-# 版本记录
+# Changelog
 
 ## 0.7.2 (2026-09-05)
-- 新增历史消息分页加载：聊天页顶部「加载更早消息」按钮，点击按 before_id 拉上一页前插（GET /messages?page_size=100 只回最近 100 条原始消息含 tool，过滤后可见气泡可能只剩几条；before_id 实测有效）；APIClient.getMessages 支持可选 beforeId，返回 MessagesPage（过滤后消息 + 本页最旧原始消息 id/时间作游标 + hasMore 粗判=本页原始 items 数是否达到 page_size）；游标取各页最旧原始消息最小值（单调向旧，轮询带回的最新一页不回退游标）；earlierHistory 与最新一页按 id 去重后合并渲染（applyHistory 按 createdAt 排序自然前插，pendingLocal/queued/active 合成气泡不受影响；回显/队列文本匹配仍只针对最新一页，避免旧消息同文本误判"已确认"）；加载状态提示（加载中…/没有更多了，本页原始 items 数 < page_size 视为翻到头）；前插后滚动锚定原首条消息，不再跳到底部
+- Added paginated loading of history messages: a "Load earlier messages" button at the top of the chat page pulls the previous page by before_id and prepends it (GET /messages?page_size=100 only returns the most recent 100 raw messages including tool ones, so after filtering only a few visible bubbles may remain; before_id verified to work in practice); APIClient.getMessages supports an optional beforeId and returns MessagesPage (filtered messages + the id/timestamp of the oldest raw message in this page as cursor + hasMore as a rough guess = whether the number of raw items in this page reaches page_size); the cursor takes the minimum of the oldest raw messages across pages (monotonic toward older; the newest page brought back by polling does not roll the cursor back); earlierHistory is deduplicated by id against the newest page before merged rendering (applyHistory sorts by createdAt so prepending happens naturally, pendingLocal/queued/active composite bubbles are unaffected; echo/queue text matching still only applies to the newest page to avoid old messages with identical text being misjudged as "confirmed"); loading state indicators (loading... / no more messages, a page whose raw item count < page_size is treated as having reached the beginning); after prepending, the scroll position is anchored to the original first message instead of jumping to the bottom
 
 ## 0.7.1 (2026-09-05)
-- 修复上下文用量显示：limit 取 WS maxContextTokens，>0 才用，否则兜底 1048576（不再因 limit 缺失/为 0 整条不显示）；格式固定「用量/上限 (百分比)」，任何情况都带百分比；修复小数格式 bug（formatTokens 改为先 %.1f 格式化再裁 ".0" 后缀，四舍五入到整数时不再漏出 "1000.0k" 这类小数）
-- 新增「从这里分叉」：user 气泡长按 contextMenu 入口，统计该消息之后已在服务端历史里的 user 消息数 n（排除本地乐观回显 pendingLocal 与 queued-N/active 合成气泡，避免多撤）→ :fork 全量克隆当前会话 → 新会话 :undo {"count":n}（已实测有效）→ 切到新会话；APIClient.sessionAction 支持可选 body，新增 undoSession
+- Fixed context usage display: limit is taken from WS maxContextTokens and used only when >0, otherwise falls back to 1048576 (no longer hides the entire entry when limit is missing/0); format is fixed as "usage/limit (percentage)", always including the percentage in all cases; fixed a decimal formatting bug (formatTokens now formats with %.1f first and then trims the ".0" suffix, so rounding up to an integer no longer leaks decimals like "1000.0k")
+- Added "Fork from here": long-press a user bubble to open the contextMenu entry; counts the number n of user messages after this one that are already in the server-side history (excluding local optimistic echoes pendingLocal and queued-N/active composite bubbles to avoid over-undoing) → :fork fully clones the current session → :undo {"count":n} on the new session (verified in practice) → switches to the new session; APIClient.sessionAction supports an optional body, added undoSession
 
 ## 0.7.0 (2026-09-05)
-- 新增上下文使用量显示（聊天页状态区，如「上下文 23.5k/1000k (2%)」）：数据源优先级 ① WS transcript.reset 快照 payload.snapshot.meta.agent 的 contextTokens/maxContextTokens → ② transcript.ops meta.merge 的 agent.contextTokens/maxContextTokens（缺失字段保留旧值）→ ③ GET /sessions/{id} 的 usage.context_tokens/context_limit 兜底（实测可能全 0，此时不显示）；WSService 新增 .contextUsage 事件，APIClient 新增 getSessionUsage
-- 聊天页工具栏新增「分叉」按钮：与 /fork 同路径（POST :fork，成功经 forkTarget 切到新会话）；/fork 处理逻辑抽为公开的 ChatViewModel.fork() 复用
-- 新增 /rename（或 /title）命令：POST /sessions/{id}/profile，body 顶层 {"title":"..."}（已实测）；取首个空格后全部剩余文本为新标题，空参数提示用法；成功刷新导航栏标题（sessionTitle 改 @Published）并发 kimiSessionRenamed 通知让 MainView 静默刷新列表；/help 同步补充
+- Added context usage display (status area on the chat page, e.g. "Context 23.5k/1000k (2%)"): data source priority 1) contextTokens/maxContextTokens of payload.snapshot.meta.agent from the WS transcript.reset snapshot → 2) agent.contextTokens/maxContextTokens from transcript.ops meta.merge (missing fields keep previous values) → 3) fallback to usage.context_tokens/context_limit from GET /sessions/{id} (may be all zeros in practice, in which case nothing is shown); WSService added a .contextUsage event, APIClient added getSessionUsage
+- Added a "Fork" button to the chat page toolbar: same path as /fork (POST :fork, on success switches to the new session via forkTarget); the /fork handling logic was extracted into the public ChatViewModel.fork() for reuse
+- Added /rename (or /title) command: POST /sessions/{id}/profile with top-level body {"title":"..."} (verified in practice); takes all remaining text after the first space as the new title, shows usage hint when the argument is empty; on success refreshes the navigation bar title (sessionTitle changed to @Published) and posts a kimiSessionRenamed notification so MainView silently refreshes the list; /help updated accordingly
 
 ## 0.6.2 (2026-09-05)
-- 修复 / 命令按首 token 匹配（/fork 带参数不再被当普通消息发送）
+- Fixed / command matching by first token (/fork with arguments is no longer sent as a normal message)
 
 ## 0.6.1 (2026-09-05)
-- 离线语音模型改按需下载（对齐 Android）：模型不再打进 bundle（project.yml 去掉 Resources/models 引用，目录只留 .gitkeep）；SpeechOnnx.modelAvailable 改查运行时目录 Application Support/models/zipformer-bilingual/；设置页新增「离线语音模型」区块：模型状态、可编辑下载地址（UserDefaults voice_model_url，默认 GitHub Releases v0.6.1-models/model-zipformer-bilingual.zip）、「下载离线模型」按钮 + 进度文本（ModelDownloadManager：URLSessionDownloadTask 下载到 tmp → ZIPFoundation 解压到 Application Support，新增 ZIPFoundation SwiftPM 依赖）；语音按钮在仅离线模式且模型未下载时提示「请先到设置页下载离线模型」
-- 新增 / 命令支持（发送前拦截，对齐 macOS/Android）：/compact→POST :compact、/archive→:archive（成功返回列表）、/fork→:fork（解析 data.id/session_id 切到新会话）、/abort（/stop）→:abort、/new→返回列表并新建会话（通知 MainView）、/help→命令列表弹窗；其他 / 开头输入当普通 prompt 发送；APIClient 新增通用方法 sessionAction（POST /sessions/{id}:{action}，abortSession 改复用）
+- Offline speech model changed to on-demand download (aligned with Android): the model is no longer bundled (project.yml removed the Resources/models reference, the directory keeps only .gitkeep); SpeechOnnx.modelAvailable now checks the runtime directory Application Support/models/zipformer-bilingual/; the settings page added an "Offline speech model" section: model status, editable download URL (UserDefaults voice_model_url, defaulting to GitHub Releases v0.6.1-models/model-zipformer-bilingual.zip), a "Download offline model" button + progress text (ModelDownloadManager: URLSessionDownloadTask downloads to tmp → ZIPFoundation extracts to Application Support, added ZIPFoundation SwiftPM dependency); the voice button in offline-only mode prompts "Please download the offline model from the settings page first" when the model is not downloaded
+- Added / command support (intercepted before sending, aligned with macOS/Android): /compact→POST :compact, /archive→:archive (returns to the list on success), /fork→:fork (parses data.id/session_id to switch to the new session), /abort (/stop)→:abort, /new→returns to the list and creates a new session (notifies MainView), /help→command list popup; other inputs starting with / are sent as normal prompts; APIClient added a generic method sessionAction (POST /sessions/{id}:{action}, abortSession refactored to reuse it)
 
 ## 0.6.0 (2026-09-05)
-- 新增自载离线语音识别：sherpa-onnx（SwiftPM 依赖，Apache-2.0）+ streaming-zipformer 中英双语流式模型（int8，约 189MB，放 KimiMobile/Resources/models/zipformer-bilingual/，folder reference 打进 bundle，目录已加入 .gitignore 不入 git）；新增 SpeechOnnx（16kHz 单声道重采样 + 流式喂入 + 端点检测分段，接口对齐 SpeechInput）
-- 设置页「偏好」新增语音识别引擎选择（自动优先离线 / 仅离线 / 仅系统，存 UserDefaults voice_engine）；语音按钮 auto 模式下模型存在时优先走离线识别，加载失败自动回退 SFSpeechRecognizer（旧 SpeechInput 代码保留）
+- Added self-hosted offline speech recognition: sherpa-onnx (SwiftPM dependency, Apache-2.0) + streaming-zipformer Chinese-English bilingual streaming model (int8, about 189MB, placed in KimiMobile/Resources/models/zipformer-bilingual/, bundled via folder reference, the directory is in .gitignore and not committed to git); added SpeechOnnx (16kHz mono resampling + streaming feeding + endpoint detection segmentation, interface aligned with SpeechInput)
+- The settings page "Preferences" added a speech recognition engine selector (auto prefer offline / offline only / system only, stored in UserDefaults voice_engine); in auto mode the voice button prefers offline recognition when the model exists, and automatically falls back to SFSpeechRecognizer on load failure (the old SpeechInput code is kept)
 
 ## 0.5.2 (2026-09-02)
-- 问答卡片/弹窗内容区限高可滚动：题目和选项多时底部提交按钮始终可达（三端同步）
+- Q&A card/dialog content area is height-limited and scrollable: the submit button at the bottom is always reachable when there are many questions and options (synced across all three platforms)
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示：isSystemInjected 补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages: isSystemInjected added the <notification prefix (synced across all three platforms)
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示：isSystemInjected 补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages: isSystemInjected added the <notification prefix (synced across all three platforms)
 
 
 ## 0.5.1 (2026-09-02)
-- 修复后台任务通知（<notification ...>）被当作用户消息显示：isSystemInjected 补充 <notification 前缀（三端同步）
+- Fixed background task notifications (<notification ...>) being displayed as user messages: isSystemInjected added the <notification prefix (synced across all three platforms)
 ## 0.5.0 (2026-09-02)
-- 新增审批 UI：轮询 GET /sessions/{id}/approvals?status=pending（data.items[] 含 approval_id/tool_name/action/tool_input_display.summary），审批卡片显示工具名·动作+摘要，批准/拒绝按钮 POST /sessions/{id}/approvals/{approval_id}（body {"decision":"approved"|"rejected"}）；提交时乐观移除卡片，失败回滚轮询
-- 新增问答支持：轮询 GET /sessions/{id}/questions?status=pending（data.items[] 含 question_id、questions[]（每题 id/question/header/options/allow_other））；问答卡片逐题单选（kind=single/option_id），allow_other=true 时提供"其他"文本框（kind=other/text）；提交 POST /sessions/{id}/questions/{question_id}（body {"answers":{"<问题id>":{...}}}），另有"跳过"按钮（全部题目 kind=skipped）
-- 新增中断按钮：busy 时输入栏显示红色停止按钮，点击调 POST /sessions/{id}:abort（冒号后缀语法，服务端实测返回 {"aborted":true}），发送按钮保留可用（busy 时仍可排队）
-- 审批/问答随历史调和同一周期轮询（busy 15s / 空闲 60s，startBusyPolling 同节奏），onAppear 首次即拉一次；拉取失败不清空已有卡片避免闪动
+- Added approval UI: polls GET /sessions/{id}/approvals?status=pending (data.items[] contains approval_id/tool_name/action/tool_input_display.summary); the approval card shows tool name, action and summary; approve/reject buttons POST /sessions/{id}/approvals/{approval_id} (body {"decision":"approved"|"rejected"}); cards are optimistically removed on submit, and polling rolls back on failure
+- Added Q&A support: polls GET /sessions/{id}/questions?status=pending (data.items[] contains question_id, questions[] (each with id/question/header/options/allow_other)); the Q&A card offers single choice per question (kind=single/option_id), and when allow_other=true an "other" text box is provided (kind=other/text); submission POSTs /sessions/{id}/questions/{question_id} (body {"answers":{"<question_id>":{...}}}), plus a "skip" button (all questions kind=skipped)
+- Added an interrupt button: when busy, the input bar shows a red stop button that calls POST /sessions/{id}:abort (colon-suffix syntax, server verified to return {"aborted":true}); the send button remains usable (queuing is still possible while busy)
+- Approvals/Q&A are polled on the same cycle as history reconciliation (busy 15s / idle 60s, same cadence as startBusyPolling), with an immediate first fetch on onAppear; fetch failures do not clear existing cards to avoid flicker
 
 ## 0.4.9 (2026-08-21)
-- 设置页「偏好」底部新增版本号显示（"版本 0.4.9 (2)"），取自 Bundle.main 的 CFBundleShortVersionString / CFBundleVersion，随 project.yml 的 MARKETING_VERSION / CURRENT_PROJECT_VERSION 自动生成
+- Added version display at the bottom of the settings page "Preferences" ("Version 0.4.9 (2)"), taken from Bundle.main's CFBundleShortVersionString / CFBundleVersion, automatically generated from project.yml's MARKETING_VERSION / CURRENT_PROJECT_VERSION
 
 ## 0.4.8 (2026-08-20)
-- 修复"对话顺序错乱"：applyHistory 调和原来把本地回显/排队中/执行中气泡无条件堆在列表末尾，早于最新历史条目时顺序就乱；ChatMessage 已有 createdAt，APIClient.listQueuedPrompts 改返回带 created_at 的 QueuedPrompt 结构（active/queued 均含），调和完成后全列表按 createdAt 升序排列（无时间戳的排最后）
-- 修复"空闲会话徽标状态冻结"：busy 轮询原来只在忙时跑；busyPollTask 改为 busy 时 15s 一轮、空闲时 60s 一轮兜底调和（onAppear 启动、视图消失停止、幂等防叠加），转闲不再停轮询
-- applyHistory 调和入口新增 [Reconcile] 前缀诊断日志：history 条数、queue/active 摘要、每个本地回显的判定（历史确认/执行中/排队中/未送达/POST 在途）
-- 与 macOS 端 0.4.8 同步修复
+- Fixed "conversation order scrambled": applyHistory reconciliation used to unconditionally append local echo/queued/executing bubbles to the end of the list, so ordering broke when they predated the latest history entries; ChatMessage already has createdAt, APIClient.listQueuedPrompts now returns a QueuedPrompt structure with created_at (for both active/queued), and after reconciliation the full list is sorted by createdAt ascending (entries without timestamps go last)
+- Fixed "idle session badge state frozen": busy polling previously only ran while busy; busyPollTask now polls every 15s when busy and every 60s when idle as a fallback reconciliation (started onAppear, stopped when the view disappears, idempotent against stacking), and no longer stops polling when turning idle
+- Added [Reconcile] prefixed diagnostic logs at the applyHistory reconciliation entry: history count, queue/active summary, and the verdict for each local echo (confirmed in history / executing / queued / undelivered / POST in flight)
+- Synced fixes with the macOS client 0.4.8
 
 ## 0.4.7 (2026-08-20)
-- 修复"turn 进行中才进入会话时无任何流式内容/状态"（v0.37.2 服务端实测：迟到订阅者收不到该 turn 的 transcript.ops）：
-  - WSService 处理 transcript.reset 时解析 payload.snapshot.meta.agent.phase 补发 .phase 事件（多 agent 多个 reset 只取 main：agent_id=="main" 或 meta 非空），ChatViewModel 据此立即显示"工作中/正在思考"（phase kind 新增 tool_call 识别）
-  - busy 期间每 15s 轮询一次历史（含队列调和），busy 消失时最后刷一次收尾；视图消失/转闲自动停止，幂等防叠加；work_changed 同样可能收不到时由 phase 事件（running/tool_call/streaming 启动、ended/interrupted 停止）兜底触发；loadHistory 的"流式中不覆盖"守卫放宽为"有流式帧才不覆盖"，无帧的迟到订阅者照常调和
-- 修复"正在执行的消息显示成排队中"：GET /prompts?status=queued 的 data.active 是当前正在执行的 prompt（不在 queued[] 里），APIClient.listQueuedPrompts 改返回 (active, queued)；applyHistory 调和时与 active 同文本的本地回显标"执行中"（ChatMessage 新增 isExecuting，ChatView 气泡下小字标记），不再标"排队中"/"未送达"；active 无本地回显的（重进会话/重启 app）补渲染"执行中"气泡
+- Fixed "no streaming content/status when entering a session mid-turn" (verified against v0.37.2 server: late subscribers do not receive the turn's transcript.ops):
+  - When handling transcript.reset, WSService parses payload.snapshot.meta.agent.phase and re-emits a .phase event (with multiple agents' resets only main is used: agent_id=="main" or meta non-empty); ChatViewModel immediately shows "working/thinking" accordingly (phase kind added tool_call recognition)
+  - Polls history every 15s while busy (including queue reconciliation), with a final refresh when busy ends; stops automatically when the view disappears or turns idle, idempotent against stacking; when work_changed may also not be received, the phase event serves as fallback trigger (running/tool_call/streaming start, ended/interrupted stop); loadHistory's "don't overwrite while streaming" guard relaxed to "don't overwrite only when there are streaming frames", so late subscribers without frames reconcile normally
+- Fixed "executing messages shown as queued": data.active from GET /prompts?status=queued is the currently executing prompt (not in queued[]), APIClient.listQueuedPrompts now returns (active, queued); during applyHistory reconciliation, local echoes with the same text as active are marked "executing" (ChatMessage added isExecuting, ChatView shows a small label below the bubble), no longer marked "queued"/"undelivered"; for active entries without a local echo (re-entering a session/restarting the app) an "executing" bubble is rendered as a supplement
 
 ## 0.4.6 (2026-08-20)
-- 修复"会话列表 busy 徽标陈旧"：列表只在进入/手动刷新时更新，"运行中"转圈会停留旧状态；MainView 改为 .task 循环每 30s 静默刷新会话列表（只更新 sessions，不动 loading/错误条），视图消失时随 .task 取消自动停止
-- 排队消息被服务端丢弃的兜底（上游 bug #3127：幻影 busy 下排队 prompt 被静默丢弃，既不在队列也不进历史）：applyHistory 调和时 pendingLocal 条目若既不在历史也不在队列且已超 60s → 标记"未送达（服务端已丢弃）"（ChatMessage 新增 deliveryFailed），不再显示"排队中"；POST 在途（<60s）正常保留
-- ChatView 用户气泡新增"未送达（服务端已丢弃）"红色小字警示；服务端队列重建的 queued-N 气泡本就随每次调和重建，队列与历史都没有时自然消失
+- Fixed "stale busy badges in the session list": the list only updated on entry/manual refresh, so the "running" spinner would linger in an old state; MainView changed to a .task loop that silently refreshes the session list every 30s (only updates sessions, without touching loading/error banners), automatically stopping with .task cancellation when the view disappears
+- Fallback for queued messages dropped by the server (upstream bug #3127: under phantom busy, queued prompts are silently dropped, appearing neither in the queue nor in history): during applyHistory reconciliation, pendingLocal entries that are neither in history nor in the queue and are over 60s old → marked "undelivered (dropped by server)" (ChatMessage added deliveryFailed), no longer shown as "queued"; POST in flight (<60s) is kept normally
+- ChatView user bubbles added a red small-text warning "undelivered (dropped by server)"; queued-N bubbles for server-side queue reconstruction are rebuilt with every reconciliation anyway, and disappear naturally when neither queue nor history contains them
 
 ## 0.4.4 (2026-08-20)
-- 修复"重进会话/杀 app 后排队消息消失"：v0.4.3 的 pendingLocal 只在内存，排队消息虽在服务端队列但 UI 不再显示；改为以服务端队列为真相来源 —— 新增 GET /sessions/{id}/prompts?status=queued（APIClient.listQueuedPrompts），拉历史时同步拉队列调和：历史已确认的回显移除、队列里的回显标"排队中"、队列里本地无回显的补渲染为排队气泡（按文本去重）；发送返回 queued 时本地回显即时标"排队中"
-- ChatView 用户气泡新增"排队中"标记（气泡下方小字 + 转圈）
+- Fixed "queued messages disappearing after re-entering a session/killing the app": v0.4.3's pendingLocal was memory-only, so queued messages remained in the server-side queue but were no longer shown in the UI; changed to treat the server-side queue as the source of truth — added GET /sessions/{id}/prompts?status=queued (APIClient.listQueuedPrompts), fetching the queue alongside history for reconciliation: echoes confirmed in history are removed, echoes in the queue are marked "queued", queued entries without a local echo are additionally rendered as queued bubbles (deduplicated by text); when sending returns queued, the local echo is immediately marked "queued"
+- ChatView user bubbles added a "queued" marker (small text + spinner below the bubble)
 
 ## 0.4.3 (2026-08-20)
-- 修复"排队消息被抹"：busy 时 POST /prompts 返回 status="queued"，被排队的用户消息在轮到执行前不进 GET /messages 历史；发送后的本地乐观回显进入 pendingLocal 待确认，历史刷新时服务端已出现相同文本的 user 消息才移除，否则保留在列表末尾；queued 状态条提示"排队中…"；发送失败移除回显（APIClient.sendPrompt 返回 status）
-- 新增工具流水可见：WS transcript.ops 中 frame.kind=="tool" 的帧在消息流中显示工具活动条目（"🔧 Bash: date"，running 转圈 / done 标 ✓，summary 取 display.summary ?: inputText ?: input 描述，去换行截断 80 字符），turn 结束历史刷新时临时条目自然消失
-- 与 Android 0.4.3 同步修复
+- Fixed "queued messages being wiped": when busy, POST /prompts returns status="queued", and queued user messages do not enter the GET /messages history until their turn to execute; after sending, the local optimistic echo enters pendingLocal pending confirmation, and is removed only when a user message with identical text appears server-side on history refresh, otherwise kept at the end of the list; the queued status bar hints "queuing..."; on send failure the echo is removed (APIClient.sendPrompt returns status)
+- Added tool activity visibility: frames with frame.kind=="tool" in WS transcript.ops show tool activity entries in the message stream ("🔧 Bash: date", spinner for running / ✓ for done, summary taken from display.summary ?: inputText ?: input description, newlines stripped and truncated to 80 characters); temporary entries disappear naturally when history refreshes at turn end
+- Synced fixes with Android 0.4.3
 
 ## 0.4.2 (2026-08-15)
-- 修复"会话丢失"：GET /sessions 不再带 busy=false，正在运行/卡审批的会话恢复在列表中显示（列表行内已有 busy 转圈标记）
-- 与 Android / macOS 端同步修复
+- Fixed "session loss": GET /sessions no longer carries busy=false, so sessions that are running or stuck on approval appear in the list again (list rows already have busy spinner markers)
+- Synced fixes with the Android / macOS clients
 
-## 0.4 (2026-08-15) — 首个版本
-- SwiftUI 原生客户端，功能与 Android 0.4.1 / macOS 0.4 对齐
-- Tailscale 门控（healthz 探测 + 引导页 + 自动重试）
-- 会话列表 + 工作区切换（默认 mobile 工作区）
-- WS 流式聊天（transcript.ops 全协议；ping/pong；指数退避重连）
-- 语音输入（SFSpeechRecognizer zh-CN）
-- 多主机档案（预置 146 工作机 / Mac 笔记本，token 存 Keychain）
-- 会话模式栏：计划/Swarm/权限/模型/目标；模式状态按会话本地持久化（UserDefaults）+ prompts 随带模式字段（官方机制）
-- 幻影消息过滤（<system-reminder> 等）；200 包错解析并向用户显示
+## 0.4 (2026-08-15) — First release
+- Native SwiftUI client, feature-aligned with Android 0.4.1 / macOS 0.4
+- Tailscale gating (healthz probing + onboarding page + automatic retry)
+- Session list + workspace switching (default mobile workspace)
+- WS streaming chat (full transcript.ops protocol; ping/pong; exponential-backoff reconnection)
+- Voice input (SFSpeechRecognizer zh-CN)
+- Multi-host profiles (preset 146 work machine / Mac laptop, tokens stored in Keychain)
+- Session mode bar: plan/Swarm/permission/model/goal; mode states persisted locally per session (UserDefaults) + prompts carry mode fields (official mechanism)
+- Phantom message filtering (<system-reminder> etc.); HTTP 200 wrapped error parsing and display to the user
