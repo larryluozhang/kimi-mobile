@@ -43,7 +43,7 @@ final class ModelDownloadManager: NSObject, ObservableObject {
         let zip = try await download(url)
         progressText = "解压中…"
         // 解压与文件搬移放后台线程（模型约 189MB）
-        try await Task.detached(priority: .userInitiated) { try Self.unzip(zip) }.value
+        try await Task.detached(priority: .userInitiated) { try await Self.unzip(zip) }.value
     }
 
     // MARK: - 下载（URLSessionDownloadTask → tmp zip）

@@ -2,7 +2,7 @@ name: KimiMobile
 options:
   bundleIdPrefix: com.example
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
 packages:
   # sherpa-onnx 离线语音识别（SwiftPM，Apache-2.0）；产品名与包名同为 sherpa-onnx
   sherpa-onnx:
@@ -22,7 +22,7 @@ targets:
   KimiMobile:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.0"
     sources:
       - path: KimiMobile/Sources
       - path: KimiMobile/Assets.xcassets

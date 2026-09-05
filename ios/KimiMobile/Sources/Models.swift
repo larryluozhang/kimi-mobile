@@ -7,7 +7,7 @@ struct HostProfile: Identifiable, Codable, Equatable {
     var url: String
 }
 
-struct SessionItem: Identifiable, Equatable {
+struct SessionItem: Identifiable, Equatable, Hashable {
     let id: String
     let title: String
     let updatedAt: String

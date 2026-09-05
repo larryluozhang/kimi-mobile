@@ -1,6 +1,6 @@
 # Kimi Mobile (iOS)
 
-iOS client for the Kimi Code web server (SwiftUI, iOS 16+). Feature parity with the Android/macOS clients.
+iOS client for the Kimi Code web server (SwiftUI, iOS 17+). Feature parity with the Android/macOS clients.
 
 ## Build & deploy
 

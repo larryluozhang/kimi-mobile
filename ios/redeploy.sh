@@ -69,14 +69,18 @@ APP=$(ls "$EXPORT_DIR"/*.ipa 2>/dev/null | head -1)
 
 # ---- 3. 安装到已连接设备 ---------------------------------------------------
 # 优先 devicectl（Xcode 15+ 自带）；没有的话回退 ios-deploy（brew install ios-deploy）
-# 注意：macOS 自带 bash 3.2 下空数组 "${DEVICE_ARG[@]}" 会报 unbound variable，用拼字符串规避
+# 注意：macOS 自带 bash 3.2 下空数组 "${DEVICE_ARG[@]}" 会报 unbound variable，用拼字符串规避；
+# Xcode 16 起 --device 为必填，未指定时自动取列表第一台
+if [ -z "${DEVICE:-}" ]; then
+    DEVICE=$(xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && NF>3 {print $1; exit}')
+fi
 DEVICE_ARG=""
 if [ -n "${DEVICE:-}" ]; then
     DEVICE_ARG="--device $DEVICE"
 fi
 
 if xcrun devicectl --help >/dev/null 2>&1; then
-    echo "==> 安装到设备（devicectl）"
+    echo "==> 安装到设备（devicectl: $DEVICE）"
     # shellcheck disable=SC2086
     xcrun devicectl device install app $DEVICE_ARG "$APP"
 elif command -v ios-deploy >/dev/null 2>&1; then

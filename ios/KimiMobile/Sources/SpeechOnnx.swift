@@ -60,7 +60,7 @@ final class SpeechOnnx: ObservableObject {
     /// 确保识别器已加载（模型加载约数百毫秒，放后台线程）。成功返回 true。
     func prepare() async -> Bool {
         if recognizer != nil { return true }
-        let loaded = await Task.detached(priority: .userInitiated) { Self.makeRecognizer() }.value
+        let loaded = await Task.detached(priority: .userInitiated) { await Self.makeRecognizer() }.value
         guard let loaded else {
             lastError = Self.modelAvailable ? "离线模型加载失败" : "离线模型未安装"
             return false
