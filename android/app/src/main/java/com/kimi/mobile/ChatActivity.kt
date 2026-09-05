@@ -728,7 +728,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
 
     /** 命中内置命令返回 true（已处理）；未命中返回 false，由调用方当普通 prompt 发送 */
     private fun handleSlash(text: String): Boolean {
-        when (text.lowercase()) {
+        // 按首 token 匹配命令（/fork xxx 也算 /fork），与 CLI 行为一致
+        when (text.lowercase().substringBefore(' ').substringBefore('\n')) {
             "/compact" -> runSessionAction("compact") {
                 Toast.makeText(this, "历史已压缩", Toast.LENGTH_SHORT).show()
                 loadHistory()

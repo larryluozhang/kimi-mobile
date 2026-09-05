@@ -1,5 +1,8 @@
 # 版本记录
 
+## 0.6.2 (2026-09-05)
+- 修复 / 命令按首 token 匹配（/fork 带参数不再被当普通消息发送）
+
 ## 0.6.1 (2026-09-05)
 - 离线语音模型改按需下载（APK 体积从 ~213MB 回落到 ~35MB）：移除 assets/models/ 内置模型；SpeechOnnx 改为从 filesDir/models/zipformer-bilingual/ 加载（四文件齐全才算可用，OnlineRecognizer 传 null assetManager 按绝对路径加载）；设置页语音卡片新增"下载离线模型"按钮 + 可编辑下载地址输入框（存 Prefs voice_model_url，默认 GitHub Releases v0.6.1-models），HttpURLConnection 子线程下载 zip 到 filesDir/tmp 再解压（java.util.zip，按文件名匹配 4 件套，兼容 zip 内一层目录），进度（已下载 MB/总 MB）显示在按钮旁；ChatActivity 联动：onnx 强制模式模型未下载时点击麦克风提示"请先到设置页下载离线模型"，auto 模式模型缺失静默回退系统识别
 - 输入框斜杠命令支持：发送前拦截 / 开头文本，精确匹配（忽略大小写）/compact /archive /fork /abort /stop /new /help 走服务端会话动作 POST /api/v1/sessions/{id}:{action}（Api.sessionAction）或本地流程；/archive 成功返回会话列表，/fork 成功跳转新会话，/new 复用列表页建会话流程（工作区选择策略与 SessionsActivity 一致），/help 弹窗列出命令；其他 / 开头文本按普通 prompt 发送（与官方一致）；命令均在子线程执行，结果 Toast/状态条反馈

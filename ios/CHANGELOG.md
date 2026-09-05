@@ -1,5 +1,8 @@
 # 版本记录
 
+## 0.6.2 (2026-09-05)
+- 修复 / 命令按首 token 匹配（/fork 带参数不再被当普通消息发送）
+
 ## 0.6.1 (2026-09-05)
 - 离线语音模型改按需下载（对齐 Android）：模型不再打进 bundle（project.yml 去掉 Resources/models 引用，目录只留 .gitkeep）；SpeechOnnx.modelAvailable 改查运行时目录 Application Support/models/zipformer-bilingual/；设置页新增「离线语音模型」区块：模型状态、可编辑下载地址（UserDefaults voice_model_url，默认 GitHub Releases v0.6.1-models/model-zipformer-bilingual.zip）、「下载离线模型」按钮 + 进度文本（ModelDownloadManager：URLSessionDownloadTask 下载到 tmp → ZIPFoundation 解压到 Application Support，新增 ZIPFoundation SwiftPM 依赖）；语音按钮在仅离线模式且模型未下载时提示「请先到设置页下载离线模型」
 - 新增 / 命令支持（发送前拦截，对齐 macOS/Android）：/compact→POST :compact、/archive→:archive（成功返回列表）、/fork→:fork（解析 data.id/session_id 切到新会话）、/abort（/stop）→:abort、/new→返回列表并新建会话（通知 MainView）、/help→命令列表弹窗；其他 / 开头输入当普通 prompt 发送；APIClient 新增通用方法 sessionAction（POST /sessions/{id}:{action}，abortSession 改复用）

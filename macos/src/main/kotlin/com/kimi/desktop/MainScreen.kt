@@ -651,7 +651,8 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             }
         }
         val handleSlash: (String) -> Boolean = { raw ->
-            when (raw.trim().lowercase()) {
+            // 按首 token 匹配命令（/fork xxx 也算 /fork），与 CLI 行为一致
+            when (raw.trim().lowercase().substringBefore(' ').substringBefore('\n')) {
                 "/compact" -> {
                     scope.launch {
                         try {
