@@ -3,6 +3,8 @@ import SwiftUI
 extension Notification.Name {
     /// 会话内输入 /new：ChatView dismiss 回列表，MainView 监听此通知新建会话
     static let kimiNewSessionRequest = Notification.Name("kimiNewSessionRequest")
+    /// 会话内 /rename 成功：MainView 监听此通知静默刷新会话列表标题
+    static let kimiSessionRenamed = Notification.Name("kimiSessionRenamed")
 }
 
 /// 主界面：工作区切换 + 会话列表 + 新建会话。
@@ -115,6 +117,10 @@ struct MainView: View {
         // 会话内输入 /new：ChatView 发通知并 dismiss 回列表，这里新建会话
         .onReceive(NotificationCenter.default.publisher(for: .kimiNewSessionRequest)) { _ in
             createSession()
+        }
+        // 会话内 /rename 成功：静默刷新列表标题
+        .onReceive(NotificationCenter.default.publisher(for: .kimiSessionRenamed)) { _ in
+            Task { await refreshSessions() }
         }
     }
 

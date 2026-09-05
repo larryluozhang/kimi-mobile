@@ -77,6 +77,10 @@ class AppState {
     var wsConnected by mutableStateOf(false)
     var chatError by mutableStateOf<String?>(null)
 
+    /** 当前会话上下文使用量（token）；<0 表示未知。来源优先级：WS reset 快照/meta.merge > GET session usage 兜底 */
+    var contextTokens by mutableStateOf(-1L)
+    var maxContextTokens by mutableStateOf(-1L)
+
     /** 待审批的工具调用 / 待回答的问题（轮询每 5s 更新；agent 在 manual 权限下发起需审批工具调用时挂起，等本端决策后继续 */
     var pendingApprovals = mutableStateListOf<Api.ApprovalItem>()
     var pendingQuestions = mutableStateListOf<Api.PendingQuestion>()

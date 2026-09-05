@@ -44,6 +44,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private lateinit var sessionId: String
     private lateinit var recycler: RecyclerView
     private lateinit var adapter: MessageAdapter
+    private lateinit var tvTitle: TextView
+    private lateinit var tvContext: TextView
     private lateinit var tvStatus: TextView
     private lateinit var etInput: EditText
     private lateinit var btnMic: ImageButton
@@ -64,6 +66,11 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private val pendingLocal = ArrayList<ChatMsg>()
     /** 工具活动条目：frameId -> adapter 下标；不进历史，turn 结束后随 loadHistory 清除 */
     private val toolItems = HashMap<String, Int>()
+
+    // ---------- 上下文用量 ----------
+    /** 已用/上限 token（-1 表示未知）；WS 快照与 meta.merge 为优先来源，REST 仅兜底 */
+    @Volatile private var contextTokens = -1L
+    @Volatile private var contextLimit = -1L
 
     // ---------- 会话模式栏 ----------
     @Volatile private var profile: SessionProfile? = null
@@ -96,8 +103,14 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: run { finish(); return }
         val title = intent.getStringExtra(EXTRA_SESSION_TITLE) ?: "会话"
 
-        findViewById<TextView>(R.id.tvChatTitle).text = title
+        tvTitle = findViewById(R.id.tvChatTitle)
+        tvTitle.text = title
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
+        // 与 /fork 命令同一套代码路径
+        findViewById<Button>(R.id.btnFork).setOnClickListener {
+            runSessionAction("fork") { data -> openForkedSession(data) }
+        }
+        tvContext = findViewById(R.id.tvContext)
         tvStatus = findViewById(R.id.tvStatus)
         etInput = findViewById(R.id.etInput)
         btnMic = findViewById(R.id.btnMic)
@@ -548,6 +561,19 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         Thread {
             try {
                 val history = Api.getMessages(server(), token(), sessionId)
+                // 上下文用量兜底（实测该字段可能全 0；WS 快照/meta.merge 为优先来源，非 0 才采纳）
+                try {
+                    val (used, max) = Api.getSessionUsage(server(), token(), sessionId)
+                    if (used > 0) {
+                        handler.post {
+                            contextTokens = used
+                            if (max > 0) contextLimit = max
+                            updateContextView()
+                        }
+                    }
+                } catch (e: Exception) {
+                    // 旧服务端无此字段/网络抖动：静默忽略
+                }
                 // 以服务端队列为真相来源：busy 时 queued 的 prompt 不进历史，单独拉取。
                 // 拉取失败（旧服务端无此接口/网络抖动）降级为 null → 保留全部未确认回显（旧行为）
                 val pq: PromptQueue? = try {
@@ -739,6 +765,15 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                 finish() // 返回会话列表
             }
             "/fork" -> runSessionAction("fork") { data -> openForkedSession(data) }
+            "/rename", "/title" -> {
+                // 取首个空格后的全部剩余文本作为新标题（允许标题内含空格）
+                val newTitle = text.substringAfter(' ', "").trim()
+                if (newTitle.isEmpty()) {
+                    Toast.makeText(this, "用法：/rename 新标题", Toast.LENGTH_SHORT).show()
+                } else {
+                    renameSession(newTitle)
+                }
+            }
             "/abort", "/stop" -> runSessionAction("abort") {
                 Toast.makeText(this, "已发送中止指令", Toast.LENGTH_SHORT).show()
             }
@@ -791,6 +826,31 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         })
     }
 
+    /** /rename（/title）：POST /sessions/{id}/profile 顶层 title 字段改名，成功同步顶部标题 */
+    private fun renameSession(newTitle: String) {
+        showStatus("重命名会话…")
+        Thread {
+            try {
+                Api.renameSession(server(), token(), sessionId, newTitle)
+                handler.post {
+                    hideStatus()
+                    tvTitle.text = newTitle
+                    Toast.makeText(this, "已重命名为「$newTitle」", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: ApiException) {
+                handler.post {
+                    hideStatus()
+                    handleApiError(e)
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    hideStatus()
+                    Toast.makeText(this, "重命名失败：${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     /** /new：复用列表页同款建会话流程（工作区选择策略与 SessionsActivity 一致） */
     private fun createSessionFromSlash() {
         showStatus("创建新会话…")
@@ -837,6 +897,7 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                 /compact — 压缩当前会话历史
                 /archive — 归档当前会话并返回会话列表
                 /fork — 复制当前会话并跳转到新会话
+                /rename（或 /title）— 重命名当前会话，用法：/rename 新标题
                 /abort（或 /stop）— 中止当前正在执行的任务
                 /new — 新建会话
                 /help — 显示本帮助
@@ -1170,6 +1231,34 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
             streamingIndex = -1
         }
     }
+
+    override fun onContextUsage(tokens: Long, maxTokens: Long) {
+        handler.post {
+            if (tokens > 0) contextTokens = tokens
+            if (maxTokens > 0) contextLimit = maxTokens
+            updateContextView()
+        }
+    }
+
+    // ---------- 上下文用量显示 ----------
+
+    private fun updateContextView() {
+        if (contextTokens < 0) {
+            tvContext.visibility = View.GONE
+            return
+        }
+        val limit = if (contextLimit > 0) "/${fmtTokens(contextLimit)}" else ""
+        val pct = if (contextLimit > 0) " (${contextTokens * 100 / contextLimit}%)" else ""
+        tvContext.text = "上下文 ${fmtTokens(contextTokens)}$limit$pct"
+        tvContext.visibility = View.VISIBLE
+    }
+
+    /** token 数格式化：≥1000 用 k（23.5k / 1000k），否则原样 */
+    private fun fmtTokens(n: Long): String =
+        if (n >= 1000) {
+            val k = n / 1000.0
+            if (k % 1.0 == 0.0) "${k.toLong()}k" else String.format("%.1fk", k)
+        } else "$n"
 
     // ---------- 流式气泡 ----------
 

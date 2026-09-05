@@ -36,6 +36,16 @@
             android:textColor="@android:color/white"
             android:textSize="18sp"
             android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnFork"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:text="分叉"
+            android:textColor="@android:color/white"
+            android:textSize="13sp" />
     </LinearLayout>
 
     <!-- 模式栏：常驻概要 + 折叠开关 -->
@@ -59,6 +69,15 @@
             android:maxLines="1"
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvContext"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/btnModeToggle"

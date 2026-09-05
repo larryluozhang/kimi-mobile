@@ -20,8 +20,8 @@ android {
         applicationId = "com.kimi.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "0.6.2"
+        versionCode = 21
+        versionName = "0.7.0"
         // sherpa-onnx 原生库四 ABI 约 126MB；目标设备全是 arm64，只打 arm64-v8a
         ndk { abiFilters += listOf("arm64-v8a") }
     }

@@ -271,6 +271,25 @@ object Api {
         return data.optJSONObject("session")?.optString("id") ?: data.optString("id", "")
     }
 
+    /** 会话改名：POST /sessions/{id}/profile，body 顶层 title 字段（服务端实测） */
+    fun renameSession(server: String, token: String, sessionId: String, title: String) {
+        postData(server, token, "/api/v1/sessions/$sessionId/profile", JSONObject().put("title", title))
+    }
+
+    /**
+     * 会话上下文使用量兜底（WS reset 快照/meta.merge 未上报时用）：
+     * GET /sessions/{id} 的 usage.context_tokens/context_limit（实测可能全 0，全 0 视为无数据返回 null）。
+     * 返回 contextTokens to maxContextTokens。
+     */
+    fun getSessionUsage(server: String, token: String, sessionId: String): Pair<Long, Long>? {
+        val data = getData(server, token, "/api/v1/sessions/$sessionId")
+        val usage = data.optJSONObject("usage") ?: return null
+        val ctx = usage.optLong("context_tokens", -1)
+        val limit = usage.optLong("context_limit", -1)
+        if (ctx <= 0 && limit <= 0) return null
+        return ctx to limit
+    }
+
     /** 待审批的工具调用（GET .../approvals?status=pending） */
     data class ApprovalItem(
         val id: String,

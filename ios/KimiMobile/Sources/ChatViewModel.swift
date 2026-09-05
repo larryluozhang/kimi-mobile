@@ -12,9 +12,15 @@ final class ChatViewModel: ObservableObject {
     @Published var agentConfig: AgentConfig?
     /// 模式栏正在保存（禁用控件防连点）
     @Published var profileSaving = false
+    /// 上下文使用量（token）。数据源优先级：① WS transcript.reset 快照 →
+    /// ② transcript.ops meta.merge（两路同为 WS 事件，后到的自然覆盖）→
+    /// ③ GET /sessions/{id} usage 兜底（实测可能全 0）
+    @Published var contextUsed: Int?
+    @Published var contextLimit: Int?
 
     let sessionId: String
-    let sessionTitle: String
+    /// 会话标题（/rename 成功后本地刷新，故为 @Published）
+    @Published var sessionTitle: String
 
     private let store: ProfileStore
     private var ws: WSService?
@@ -53,12 +59,27 @@ final class ChatViewModel: ObservableObject {
     static let slashHelpText = """
     /compact　压缩当前会话上下文
     /archive　归档会话并返回列表
-    /fork　分叉当前会话并切换到新会话
+    /fork　分叉当前会话并切换到新会话（同工具栏「分叉」按钮）
+    /rename 新名字（或 /title）　修改会话标题
     /abort（或 /stop）　中断当前执行
     /new　新建会话
     /help　显示本列表
     其他 / 开头的输入当作普通消息发送
     """
+
+    /// 上下文用量显示文本，如「上下文 23.5k/1000k (2%)」；数据未就绪时为 nil
+    var contextUsageText: String? {
+        guard let used = contextUsed, let limit = contextLimit, limit > 0 else { return nil }
+        let pct = Int((Double(used) / Double(limit) * 100).rounded())
+        return "上下文 \(Self.formatTokens(used))/\(Self.formatTokens(limit)) (\(pct)%)"
+    }
+
+    /// token 数缩写：≥1000 用 k（整数不带小数，如 1000k；非整数保留一位，如 23.5k）
+    private static func formatTokens(_ n: Int) -> String {
+        guard n >= 1000 else { return "\(n)" }
+        let k = Double(n) / 1000
+        return k.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(k))k" : String(format: "%.1fk", k)
+    }
 
     init(store: ProfileStore, sessionId: String, sessionTitle: String) {
         self.store = store
@@ -103,10 +124,26 @@ final class ChatViewModel: ObservableObject {
                 // busy 轮询（迟到订阅者收不到 transcript.ops，无流式帧）照常调和
                 if turnActive && !frameOrder.isEmpty { return }
                 applyHistory(history, active: active, queued: queued)
+                // 上下文用量兜底：WS（reset 快照 / meta.merge）是主数据源，
+                // 都还没收到时才查 REST usage（实测可能全 0，此时保持不显示）
+                if contextUsed == nil || contextLimit == nil { loadContextUsageFallback() }
             } catch let e as APIError {
                 handleAPIError(e)
             } catch {
                 toast = "加载消息失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 上下文用量兜底（GET /sessions/{id} 的 usage.context_tokens/context_limit）；
+    /// 全 0 视为无效（保持 nil 不显示）；WS 数据到达后自然以 WS 为准
+    private func loadContextUsageFallback() {
+        let server = store.serverURL, token = store.token, sid = sessionId
+        Task {
+            if let usage = try? await APIClient.getSessionUsage(server: server, token: token, sessionId: sid),
+               usage.limit > 0 {
+                if contextUsed == nil { contextUsed = usage.used }
+                if contextLimit == nil { contextLimit = usage.limit }
             }
         }
     }
@@ -402,18 +439,16 @@ final class ChatViewModel: ObservableObject {
             }
             return true
         case "/fork":
-            runSessionAction("fork") { [weak self] data in
-                guard let self = self else { return }
-                // 服务端在新会话信息里回 id（兼容 session_id 键）
-                let sid = (data["id"] as? String) ?? (data["session_id"] as? String) ?? ""
-                guard !sid.isEmpty else {
-                    self.toast = "已分叉会话，请返回列表查看"
-                    return
-                }
-                let title = (data["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "（分支会话）"
-                self.forkTarget = SessionItem(id: sid, title: title, updatedAt: "",
-                                              busy: false, workspaceId: "")
+            fork()
+            return true
+        case "/rename", "/title":
+            // 取首个空格后的全部剩余文本作为新标题；空则提示用法
+            let arg = String(text.dropFirst(cmd.count)).trimmingCharacters(in: .whitespaces)
+            guard !arg.isEmpty else {
+                toast = "用法：/rename 新会话名"
+                return true
             }
+            renameSession(arg)
             return true
         case "/abort", "/stop":
             abort()
@@ -426,6 +461,44 @@ final class ChatViewModel: ObservableObject {
             return true
         default:
             return false
+        }
+    }
+
+    /// 分叉当前会话并切换到新会话（/fork 与工具栏「分叉」按钮同路径）
+    func fork() {
+        runSessionAction("fork") { [weak self] data in
+            guard let self = self else { return }
+            // 服务端在新会话信息里回 id（兼容 session_id 键）
+            let sid = (data["id"] as? String) ?? (data["session_id"] as? String) ?? ""
+            guard !sid.isEmpty else {
+                self.toast = "已分叉会话，请返回列表查看"
+                return
+            }
+            let title = (data["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "（分支会话）"
+            self.forkTarget = SessionItem(id: sid, title: title, updatedAt: "",
+                                          busy: false, workspaceId: "")
+        }
+    }
+
+    /// /rename（或 /title）：改会话标题（POST /sessions/{id}/profile，body 顶层 title）；
+    /// 成功刷新导航栏标题并通知会话列表刷新
+    private func renameSession(_ newTitle: String) {
+        statusText = "正在改名…"
+        let server = store.serverURL, token = store.token, sid = sessionId
+        Task {
+            do {
+                try await APIClient.renameSession(server: server, token: token, sessionId: sid, title: newTitle)
+                statusText = nil
+                sessionTitle = newTitle
+                toast = "已改名为「\(newTitle)」"
+                NotificationCenter.default.post(name: .kimiSessionRenamed, object: nil)
+            } catch let e as APIError {
+                statusText = nil
+                handleAPIError(e)
+            } catch {
+                statusText = nil
+                toast = "改名失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -554,6 +627,10 @@ final class ChatViewModel: ObservableObject {
         case .transcriptReset:
             frameOrder.removeAll()
             frameTexts.removeAll()
+        case .contextUsage(let used, let limit):
+            // 缺失字段保留旧值（merge 增量可能只带其中一个）
+            if let used = used { contextUsed = used }
+            if let limit = limit { contextLimit = limit }
         }
     }
 

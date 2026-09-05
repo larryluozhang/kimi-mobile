@@ -299,6 +299,29 @@ object Api {
         }
     }
 
+    /** 会话详情兜底取上下文用量：usage.context_tokens / context_limit（实测该字段可能全 0，仅作兜底） */
+    fun getSessionUsage(server: String, token: String, sessionId: String): Pair<Long, Long> {
+        val req = builder(server, token, "/api/v1/sessions/$sessionId").build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            val data = checkAuth(resp.code, body)
+            val usage = data.optJSONObject("usage") ?: return 0L to 0L
+            return usage.optLong("context_tokens", 0) to usage.optLong("context_limit", 0)
+        }
+    }
+
+    /** 重命名会话：POST /sessions/{id}/profile，body 为顶层 title 字段（不是 metadata.title，已实测） */
+    fun renameSession(server: String, token: String, sessionId: String, title: String) {
+        val payload = JSONObject().put("title", title)
+        val req = builder(server, token, "/api/v1/sessions/$sessionId/profile")
+            .post(payload.toString().toRequestBody(JSON))
+            .build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            checkAuth(resp.code, body)
+        }
+    }
+
     /** 拉取服务端 prompt 队列状态（busy 时 POST 返回 queued，消息暂不进历史）。
      *  以服务端队列为真相来源，用于重进会话/重启后恢复“排队中”气泡；
      *  data.active 是当前正在执行的 prompt（v0.37.2，不在 queued[] 里）。异常向上抛，由调用方降级。 */

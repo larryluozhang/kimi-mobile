@@ -281,6 +281,27 @@ enum APIClient {
         return try unwrap(data, resp)
     }
 
+    /// 改会话标题（POST /sessions/{id}/profile，body 顶层 {"title":"..."}，已实测）
+    static func renameSession(server: String, token: String, sessionId: String, title: String) async throws {
+        let req = try request(server: server, token: token,
+                              path: "/api/v1/sessions/\(sessionId)/profile",
+                              method: "POST", body: ["title": title])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        _ = try unwrap(data, resp)
+    }
+
+    /// GET /sessions/{id} 的 usage（context_tokens/context_limit）。
+    /// 注意：实测可能全 0，仅作 WS 上下文用量缺失时的兜底数据源。
+    static func getSessionUsage(server: String, token: String, sessionId: String) async throws -> (used: Int, limit: Int) {
+        let req = try request(server: server, token: token,
+                              path: "/api/v1/sessions/\(sessionId)")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let d = try unwrap(data, resp)
+        let usage = d["usage"] as? [String: Any] ?? [:]
+        return ((usage["context_tokens"] as? NSNumber)?.intValue ?? 0,
+                (usage["context_limit"] as? NSNumber)?.intValue ?? 0)
+    }
+
     /// 中断当前 turn（POST /sessions/{id}:abort，冒号后缀语法，实测返回 {"aborted":true}）
     static func abortSession(server: String, token: String, sessionId: String) async throws {
         _ = try await sessionAction(server: server, token: token, sessionId: sessionId, action: "abort")

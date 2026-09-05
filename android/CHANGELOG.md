@@ -1,5 +1,10 @@
 # 版本记录
 
+## 0.7.0 (2026-09-05)
+- 上下文用量显示：模式概要条右侧新增「上下文 23.5k/1000k (2%)」；数据源优先级 ① WS transcript.reset 快照 meta.agent.contextTokens/maxContextTokens ② transcript.ops 的 meta.merge agent.contextTokens ③ GET /sessions/{id} 的 usage.context_tokens/context_limit（实测可能全 0，非 0 才采纳，仅兜底）；busy 轮询（loadHistory）与 WS 事件时刷新，无数据时隐藏
+- 聊天页头部新增「分叉」按钮：与 /fork 命令同一代码路径（Api.sessionAction("fork") → 跳转新会话）
+- 新增 /rename（/title）命令：取首个空格后全部文本为新标题，POST /sessions/{id}/profile 顶层 title 字段（非 metadata.title）；为空 Toast 用法提示，成功 Toast + 同步更新顶部标题；/help 命令列表同步补充
+
 ## 0.6.2 (2026-09-05)
 - 修复 / 命令按首 token 匹配（/fork 带参数不再被当普通消息发送）
 

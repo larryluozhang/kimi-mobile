@@ -1,5 +1,17 @@
 # 版本记录
 
+## 0.7.0 (2026-09-05)
+- 上下文使用量显示：会话头部标题旁展示「23.5k/1000k (2%)」；数据源优先级
+  ① WS transcript.reset 快照 payload.snapshot.meta.agent 的 contextTokens/maxContextTokens（与 phase 同层取）；
+  ② transcript.ops meta.merge 的 agent.contextTokens（与 phase 独立处理，无 phase 也取）；
+  ③ 兜底 GET /sessions/{id} 的 usage.context_tokens/context_limit（实测可能全 0，全 0 视为无数据不显示）；
+  切会话时重置，WS 上报覆盖兜底值
+- 话题分叉按钮：会话头部工具区新增「分叉」按钮，与 /fork 命令同一路径
+  （Api.forkSession + 成功后切到新会话；/fork 分支重构为复用同一 doFork）
+- /rename（或 /title）命令：POST /sessions/{id}/profile，body 顶层 title 字段；
+  取首个空格后全部剩余文本为新标题，空则提示用法，成功后刷新侧边栏/标题；/help 同步补充
+- Api.kt 新增 renameSession / getSessionUsage
+
 ## 0.6.2 (2026-09-05)
 - 修复 / 命令按首 token 匹配（/fork 带参数不再被当普通消息发送）
 

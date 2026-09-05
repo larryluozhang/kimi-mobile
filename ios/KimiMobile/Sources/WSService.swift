@@ -16,6 +16,10 @@ enum WSEvent {
     case frameAppend(frameId: String, offset: Int64, text: String)
     case turnState(state: String, error: String?)
     case transcriptReset
+    /// 上下文使用量：transcript.reset 快照 meta.agent 的 contextTokens/maxContextTokens，
+    /// 或 transcript.ops meta.merge 的 agent.contextTokens/maxContextTokens；
+    /// 缺失的字段传 nil，由上层合并保留旧值
+    case contextUsage(used: Int?, limit: Int?)
 }
 
 /**
@@ -194,10 +198,13 @@ final class WSService: NSObject {
             let agentId = p["agent_id"] as? String ?? ""
             let meta = (p["snapshot"] as? [String: Any])?["meta"] as? [String: Any]
             let isMain = agentId.isEmpty || agentId == "main" || (meta?.isEmpty == false)
-            if isMain,
-               let phase = (meta?["agent"] as? [String: Any])?["phase"] as? [String: Any] {
-                emit(.phase(kind: phase["kind"] as? String ?? "",
-                            stream: phase["stream"] as? String ?? ""))
+            if isMain, let agent = meta?["agent"] as? [String: Any] {
+                if let phase = agent["phase"] as? [String: Any] {
+                    emit(.phase(kind: phase["kind"] as? String ?? "",
+                                stream: phase["stream"] as? String ?? ""))
+                }
+                // 快照同时带上下文用量（contextTokens/maxContextTokens），据此补发 .contextUsage
+                emitContextUsage(agent)
             }
 
         case "transcript.ops":
@@ -237,10 +244,13 @@ final class WSService: NSObject {
                                   text: op["text"] as? String ?? ""))
             case "meta.merge":
                 guard let meta = op["meta"] as? [String: Any],
-                      let agent = meta["agent"] as? [String: Any],
-                      let phase = agent["phase"] as? [String: Any] else { continue }
-                emit(.phase(kind: phase["kind"] as? String ?? "",
-                            stream: phase["stream"] as? String ?? ""))
+                      let agent = meta["agent"] as? [String: Any] else { continue }
+                if let phase = agent["phase"] as? [String: Any] {
+                    emit(.phase(kind: phase["kind"] as? String ?? "",
+                                stream: phase["stream"] as? String ?? ""))
+                }
+                // meta.merge 的 agent 也可能带 contextTokens/maxContextTokens
+                emitContextUsage(agent)
             case "turn.upsert":
                 guard let turn = op["turn"] as? [String: Any] else { continue }
                 emit(.turnState(state: turn["state"] as? String ?? "",
@@ -248,6 +258,15 @@ final class WSService: NSObject {
             default:
                 continue
             }
+        }
+    }
+
+    /// 从 agent 对象提取 contextTokens/maxContextTokens 并补发 .contextUsage；两字段都缺则不发
+    private func emitContextUsage(_ agent: [String: Any]) {
+        let used = (agent["contextTokens"] as? NSNumber)?.intValue
+        let limit = (agent["maxContextTokens"] as? NSNumber)?.intValue
+        if used != nil || limit != nil {
+            emit(.contextUsage(used: used, limit: limit))
         }
     }
 

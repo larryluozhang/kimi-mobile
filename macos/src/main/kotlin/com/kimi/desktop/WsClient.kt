@@ -50,6 +50,8 @@ class WsClient(
         fun onToolFrame(turnId: String, frameId: String, name: String, state: String, summary: String)
         fun onTurnState(state: String, error: String?)
         fun onTranscriptReset()
+        /** 上下文使用量（token）；maxContextTokens<=0 表示服务端未上报上限。默认空实现（E2e 等不关心） */
+        fun onContextUsage(contextTokens: Long, maxContextTokens: Long) {}
     }
 
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
@@ -326,12 +328,20 @@ class WsClient(
                     val meta = p.optJSONObject("snapshot")?.optJSONObject("meta")
                     val agentId = p.optString("agent_id", "")
                     if (agentId == "main" || (agentId.isEmpty() && meta != null && meta.length() > 0)) {
-                        val phase = meta?.optJSONObject("agent")?.optJSONObject("phase")
+                        val agent = meta?.optJSONObject("agent")
+                        val phase = agent?.optJSONObject("phase")
                         if (phase != null) {
                             AppLog.log("WS", "reset 快照 phase=${phase.optString("kind", "")}")
                             listener.onPhase(
                                 kind = phase.optString("kind", ""),
                                 stream = phase.optString("stream", "")
+                            )
+                        }
+                        // 同层取上下文使用量（contextTokens/maxContextTokens）
+                        if (agent != null && agent.has("contextTokens")) {
+                            listener.onContextUsage(
+                                agent.optLong("contextTokens", -1),
+                                agent.optLong("maxContextTokens", -1)
                             )
                         }
                     }
@@ -396,13 +406,21 @@ class WsClient(
                     )
                 }
                 "meta.merge" -> {
-                    val phase = op.optJSONObject("meta")
-                        ?.optJSONObject("agent")
-                        ?.optJSONObject("phase") ?: continue
-                    listener.onPhase(
-                        kind = phase.optString("kind", ""),
-                        stream = phase.optString("stream", "")
-                    )
+                    val agent = op.optJSONObject("meta")?.optJSONObject("agent") ?: continue
+                    val phase = agent.optJSONObject("phase")
+                    if (phase != null) {
+                        listener.onPhase(
+                            kind = phase.optString("kind", ""),
+                            stream = phase.optString("stream", "")
+                        )
+                    }
+                    // agent.contextTokens（可能无 phase 同发，二者独立处理）
+                    if (agent.has("contextTokens")) {
+                        listener.onContextUsage(
+                            agent.optLong("contextTokens", -1),
+                            agent.optLong("maxContextTokens", -1)
+                        )
+                    }
                 }
                 "turn.upsert" -> {
                     val turn = op.optJSONObject("turn") ?: continue

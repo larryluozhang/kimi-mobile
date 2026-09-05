@@ -29,6 +29,7 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             statusBar
+            contextUsageBar
             ModeBarView(vm: vm)
             Divider()
             // 待审批 / 待答问卷卡片（轮询 /approvals 与 /questions?status=pending，服务端无 pending 时整块不渲染）
@@ -46,6 +47,15 @@ struct ChatView: View {
         }
         .navigationTitle(vm.sessionTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // 分叉当前会话并切换到新会话（与 /fork 同路径，成功经 forkTarget 推出新会话页）
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: vm.fork) {
+                    Label("分叉", systemImage: "arrow.triangle.branch")
+                }
+                .accessibilityLabel("分叉")
+            }
+        }
         .background(Theme.background.ignoresSafeArea())
         .onAppear { vm.onAppear() }
         .onDisappear { vm.onDisappear() }
@@ -108,6 +118,26 @@ struct ChatView: View {
             .padding(.horizontal)
             .padding(.vertical, 6)
             .foregroundColor(Theme.statusText)
+            .background(Theme.statusBackground)
+        }
+    }
+
+    // MARK: - 上下文用量条
+
+    /// 上下文使用量（数据源：WS reset 快照 / meta.merge，REST usage 兜底）；无数据时不渲染
+    @ViewBuilder
+    private var contextUsageBar: some View {
+        if let usage = vm.contextUsageText {
+            HStack(spacing: 6) {
+                Image(systemName: "gauge")
+                    .font(.caption2)
+                Text(usage)
+                    .font(.caption2)
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 4)
+            .foregroundColor(.secondary)
             .background(Theme.statusBackground)
         }
     }

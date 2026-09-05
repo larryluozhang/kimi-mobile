@@ -99,6 +99,22 @@ fun MainScreen(state: AppState) {
     }
 }
 
+/** token 数格式化：>=1000 显示为 k（23500 → "23.5k"，1000000 → "1000k"） */
+private fun formatTokenCount(n: Long): String =
+    if (n >= 1000) {
+        val k = n / 1000.0
+        if (k == k.toLong().toDouble()) "${k.toLong()}k" else "%.1fk".format(k)
+    } else "$n"
+
+/** 上下文使用量展示：如 "23.5k/1000k (2%)"；max<=0（服务端未报上限）时只显示用量 */
+private fun formatContextUsage(contextTokens: Long, maxContextTokens: Long): String =
+    if (maxContextTokens > 0) {
+        val pct = contextTokens * 100 / maxContextTokens
+        "${formatTokenCount(contextTokens)}/${formatTokenCount(maxContextTokens)} ($pct%)"
+    } else {
+        formatTokenCount(contextTokens)
+    }
+
 private suspend fun loadSidebar(state: AppState, preferWorkspaceId: String = "") {
     state.sessionsLoading = true
     state.sidebarError = null
@@ -334,6 +350,8 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
         state.pendingApprovals.clear()
         state.pendingQuestions.clear()
         state.chatError = null
+        state.contextTokens = -1
+        state.maxContextTokens = -1
         state.busy = state.sessions.firstOrNull { it.id == sessionId }?.busy ?: false
         state.historyLoading = true
         try {
@@ -380,6 +398,17 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             if (state.sessionProfile == null) {
                 state.sessionProfile = Api.SessionProfile("", "", "manual", false, false, "", "")
             }
+        }
+
+        // 上下文使用量兜底：WS reset 快照/meta.merge 未上报时，GET /sessions/{id} usage（实测可能全 0）
+        try {
+            val usage = withContext(Dispatchers.IO) { Api.getSessionUsage(state.server(), state.token(), sessionId) }
+            if (usage != null && state.activeSessionId == sessionId && state.contextTokens < 0) {
+                state.contextTokens = usage.first
+                state.maxContextTokens = usage.second
+            }
+        } catch (e: Throwable) {
+            AppLog.error("MAIN", "拉取会话 usage 失败", e)
         }
 
         var wsOpenedOnce = false
@@ -456,6 +485,10 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                 }
             }
             override fun onTranscriptReset() { state.frames.clear() }
+            override fun onContextUsage(contextTokens: Long, maxContextTokens: Long) {
+                state.contextTokens = contextTokens
+                if (maxContextTokens > 0) state.maxContextTokens = maxContextTokens
+            }
         })
         state.wsClient = ws
         ws.start()
@@ -520,6 +553,27 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
     }
 
     Column(modifier = modifier.background(MaterialTheme.colorScheme.background)) {
+        // / 命令与头部按钮共用的失败处理（引用它的 UI 在下方定义，须提前声明）
+        val slashFail: (Throwable, String) -> Unit = { e, action ->
+            AppLog.error("SLASH", "$action 失败", e)
+            if (e is ApiException && (e.httpCode == 401 || e.httpCode == 403)) state.onAuthFailure(e.message ?: "认证失败")
+            else {
+                state.chatError = e.message
+                state.messages.add(ChatMessage("err-" + System.currentTimeMillis(), "error", "$action 失败：${e.message}"))
+            }
+        }
+        // 分叉当前会话：头部「分叉」按钮与 /fork 命令同一路径
+        val doFork: () -> Unit = {
+            scope.launch {
+                try {
+                    val newId = withContext(Dispatchers.IO) { Api.forkSession(state.server(), state.token(), sessionId) }
+                    AppLog.log("FORK", "已分叉会话 newId=${newId.take(24)}")
+                    loadSidebar(state, state.activeWorkspaceId)
+                    if (newId.isNotEmpty()) state.activeSessionId = newId
+                    else state.chatError = "分叉成功，但服务端未返回新会话 id"
+                } catch (e: Throwable) { slashFail(e, "分叉会话") }
+            }
+        }
         // 聊天头部
         Surface(color = MaterialTheme.colorScheme.surface) {
             Row(
@@ -528,6 +582,15 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             ) {
                 val title = state.sessions.firstOrNull { it.id == sessionId }?.title ?: "未选择会话"
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                // 上下文使用量（WS reset 快照/meta.merge 上报，GET session usage 兜底）
+                if (state.contextTokens >= 0) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        formatContextUsage(state.contextTokens, state.maxContextTokens),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 if (state.busy || state.pendingEchoes.any { it.sessionId == sessionId && !it.undelivered }) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(6.dp))
@@ -560,6 +623,12 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                         }
                     }) {
                         Text("停止", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                // 分叉按钮：与 /fork 命令同一路径（Api.forkSession + 成功后切到新会话）
+                if (sessionId.isNotEmpty()) {
+                    TextButton(onClick = { doFork() }) {
+                        Text("分叉", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -642,14 +711,6 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
         // / 命令帮助弹窗（/help 触发）
         var slashHelpOpen by remember { mutableStateOf(false) }
         // / 命令：发送前拦截，精确匹配（忽略大小写）；返回 true 表示已消费，未识别的 / 开头文本当普通 prompt 发送
-        val slashFail: (Throwable, String) -> Unit = { e, action ->
-            AppLog.error("SLASH", "$action 失败", e)
-            if (e is ApiException && (e.httpCode == 401 || e.httpCode == 403)) state.onAuthFailure(e.message ?: "认证失败")
-            else {
-                state.chatError = e.message
-                state.messages.add(ChatMessage("err-" + System.currentTimeMillis(), "error", "$action 失败：${e.message}"))
-            }
-        }
         val handleSlash: (String) -> Boolean = { raw ->
             // 按首 token 匹配命令（/fork xxx 也算 /fork），与 CLI 行为一致
             when (raw.trim().lowercase().substringBefore(' ').substringBefore('\n')) {
@@ -677,14 +738,29 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                     true
                 }
                 "/fork" -> {
-                    scope.launch {
-                        try {
-                            val newId = withContext(Dispatchers.IO) { Api.forkSession(state.server(), state.token(), sessionId) }
-                            AppLog.log("SLASH", "已分叉会话 newId=${newId.take(24)}")
-                            loadSidebar(state, state.activeWorkspaceId)
-                            if (newId.isNotEmpty()) state.activeSessionId = newId
-                            else state.chatError = "分叉成功，但服务端未返回新会话 id"
-                        } catch (e: Throwable) { slashFail(e, "分叉会话") }
+                    doFork()
+                    true
+                }
+                "/rename", "/title" -> {
+                    // 取首个空格后全部剩余文本作为新标题
+                    val newTitle = raw.trim().substringAfter(' ', "").trim()
+                    if (newTitle.isEmpty()) {
+                        state.messages.add(
+                            ChatMessage("sys-" + System.currentTimeMillis(), "assistant", "用法：/rename 新会话名（/title 同义）")
+                        )
+                    } else {
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    Api.renameSession(state.server(), state.token(), sessionId, newTitle)
+                                }
+                                AppLog.log("SLASH", "已改名会话 title=$newTitle session=${sessionId.take(24)}")
+                                state.messages.add(
+                                    ChatMessage("sys-" + System.currentTimeMillis(), "assistant", "✅ 会话已改名为「$newTitle」")
+                                )
+                                loadSidebar(state, state.activeWorkspaceId)
+                            } catch (e: Throwable) { slashFail(e, "会话改名") }
+                        }
                     }
                     true
                 }
@@ -725,6 +801,7 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                         /compact — 压缩当前会话历史
                         /archive — 归档当前会话并返回会话列表
                         /fork — 以当前会话为起点分叉出新会话并切换过去
+                        /rename（或 /title）新名字 — 修改当前会话标题
                         /abort（或 /stop）— 中断当前正在运行的 turn
                         /new — 新建会话
                         /help — 显示本说明

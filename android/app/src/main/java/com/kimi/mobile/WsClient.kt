@@ -47,6 +47,8 @@ class WsClient(
         fun onTurnState(state: String, error: String?)
         /** transcript 被重置（重连/换订阅），应丢弃本地流式缓冲 */
         fun onTranscriptReset()
+        /** 上下文用量更新：tokens 已用 / maxTokens 上限（0 表示未知）；来源为 reset 快照 meta.agent 或 meta.merge */
+        fun onContextUsage(tokens: Long, maxTokens: Long)
     }
 
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
@@ -191,7 +193,13 @@ class WsClient(
                 val p = msg.optJSONObject("payload") ?: return
                 val meta = p.optJSONObject("snapshot")?.optJSONObject("meta")
                 if (p.optString("agent_id") == "main" || meta != null) {
-                    val phase = meta?.optJSONObject("agent")?.optJSONObject("phase")
+                    val agent = meta?.optJSONObject("agent")
+                    // reset 快照带权威上下文用量：meta.agent.contextTokens / maxContextTokens
+                    val used = agent?.optLong("contextTokens", 0) ?: 0
+                    if (used > 0) {
+                        listener.onContextUsage(used, agent?.optLong("maxContextTokens", 0) ?: 0)
+                    }
+                    val phase = agent?.optJSONObject("phase")
                     if (phase != null) {
                         listener.onPhase(
                             kind = phase.optString("kind", ""),
@@ -247,9 +255,14 @@ class WsClient(
                     )
                 }
                 "meta.merge" -> {
-                    val phase = op.optJSONObject("meta")
-                        ?.optJSONObject("agent")
-                        ?.optJSONObject("phase") ?: continue
+                    val agent = op.optJSONObject("meta")
+                        ?.optJSONObject("agent") ?: continue
+                    // meta.merge 也带实时上下文用量（contextTokens 递增；maxContextTokens 可能没有）
+                    val used = agent.optLong("contextTokens", 0)
+                    if (used > 0) {
+                        listener.onContextUsage(used, agent.optLong("maxContextTokens", 0))
+                    }
+                    val phase = agent.optJSONObject("phase") ?: continue
                     listener.onPhase(
                         kind = phase.optString("kind", ""),
                         stream = phase.optString("stream", "")

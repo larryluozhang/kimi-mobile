@@ -1,5 +1,10 @@
 # 版本记录
 
+## 0.7.0 (2026-09-05)
+- 新增上下文使用量显示（聊天页状态区，如「上下文 23.5k/1000k (2%)」）：数据源优先级 ① WS transcript.reset 快照 payload.snapshot.meta.agent 的 contextTokens/maxContextTokens → ② transcript.ops meta.merge 的 agent.contextTokens/maxContextTokens（缺失字段保留旧值）→ ③ GET /sessions/{id} 的 usage.context_tokens/context_limit 兜底（实测可能全 0，此时不显示）；WSService 新增 .contextUsage 事件，APIClient 新增 getSessionUsage
+- 聊天页工具栏新增「分叉」按钮：与 /fork 同路径（POST :fork，成功经 forkTarget 切到新会话）；/fork 处理逻辑抽为公开的 ChatViewModel.fork() 复用
+- 新增 /rename（或 /title）命令：POST /sessions/{id}/profile，body 顶层 {"title":"..."}（已实测）；取首个空格后全部剩余文本为新标题，空参数提示用法；成功刷新导航栏标题（sessionTitle 改 @Published）并发 kimiSessionRenamed 通知让 MainView 静默刷新列表；/help 同步补充
+
 ## 0.6.2 (2026-09-05)
 - 修复 / 命令按首 token 匹配（/fork 带参数不再被当普通消息发送）
 
