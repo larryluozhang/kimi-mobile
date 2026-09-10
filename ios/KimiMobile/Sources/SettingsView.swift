@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var modelInstalled = SpeechOnnx.modelAvailable
     @State private var downloadError: String?
     @StateObject private var downloader = ModelDownloadManager()
+    /// 服务端模型列表（GET /api/v1/models）；拉取失败/为空保持空数组，模型行回退手动输入
+    @State private var serverModels: [ModelItem] = []
 
     /// 当前版本号，如 "0.4.9 (2)"；读不到时回退占位。
     static let appVersion: String = {
@@ -92,11 +94,23 @@ struct SettingsView: View {
                 HStack {
                     Text("模型")
                     Spacer()
-                    TextField(Constants.defaultModel, text: $store.model)
-                        .multilineTextAlignment(.trailing)
-                        .foregroundColor(.secondary)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
+                    if serverModels.isEmpty {
+                        // 模型列表拉取失败/为空（或主机未连通）：回退手动输入
+                        TextField(Constants.defaultModel, text: $store.model)
+                            .multilineTextAlignment(.trailing)
+                            .foregroundColor(.secondary)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                    } else {
+                        // 服务端动态列表（GET /api/v1/models）；当前值不在列表时补进去
+                        Picker("模型", selection: $store.model) {
+                            ForEach(settingsModelOptions, id: \.self) { m in
+                                Text(m.components(separatedBy: "/").last ?? m).tag(m)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(.secondary)
+                    }
                 }
             } header: {
                 Text("偏好")
@@ -148,7 +162,38 @@ struct SettingsView: View {
             ProfileEditorSheet(profile: editing)
                 .environmentObject(store)
         }
-        .onAppear { modelInstalled = SpeechOnnx.modelAvailable }
+        .onAppear {
+            modelInstalled = SpeechOnnx.modelAvailable
+            loadServerModels()
+        }
+        // 切换/增删主机档案后按新的当前主机重拉模型列表
+        .onChange(of: store.revision) { _, _ in loadServerModels() }
+    }
+
+    /// 全局模型选项（服务端动态列表）；当前值不在列表时补进去，避免 Picker 选中态落空
+    private var settingsModelOptions: [String] {
+        var ids = serverModels.map(\.id)
+        if !store.model.isEmpty && !ids.contains(store.model) {
+            ids.append(store.model)
+        }
+        return ids
+    }
+
+    /// 按当前主机档案拉模型列表；无 token/拉取失败/为空时保持空数组（UI 回退手动输入）
+    private func loadServerModels() {
+        let server = store.serverURL, token = store.token
+        guard !server.isEmpty, !token.isEmpty else {
+            serverModels = []
+            return
+        }
+        Task {
+            if let models = try? await APIClient.listModels(server: server, token: token),
+               !models.isEmpty {
+                serverModels = models
+            } else {
+                serverModels = []
+            }
+        }
     }
 
     private func downloadModel() {

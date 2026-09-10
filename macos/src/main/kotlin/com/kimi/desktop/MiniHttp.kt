@@ -23,13 +23,32 @@ object MiniHttp {
 
     data class Response(val code: Int, val headers: Map<String, String>, val body: String)
 
+    /** 二进制响应体版本（如下载图片字节流，不能按 UTF-8 解码） */
+    data class BytesResponse(val code: Int, val headers: Map<String, String>, val body: ByteArray)
+
     fun get(url: String, headers: Map<String, String> = emptyMap(), timeoutMs: Long = 30_000): Response =
         request("GET", url, headers, null, timeoutMs)
 
     fun post(url: String, headers: Map<String, String>, body: String, timeoutMs: Long = 30_000): Response =
         request("POST", url, headers, body, timeoutMs)
 
+    /** 下载二进制（图片等）；无请求体 */
+    fun getBytes(url: String, headers: Map<String, String> = emptyMap(), timeoutMs: Long = 30_000): BytesResponse =
+        raw("GET", url, headers, null, null, timeoutMs)
+
+    /** 发送自定义 Content-Type 的二进制请求体（multipart 等）；响应仍按 UTF-8 解码 */
+    fun postBytes(url: String, headers: Map<String, String>, contentType: String, body: ByteArray, timeoutMs: Long = 30_000): Response {
+        val r = raw("POST", url, headers, body, contentType, timeoutMs)
+        return Response(r.code, r.headers, String(r.body, StandardCharsets.UTF_8))
+    }
+
     fun request(method: String, url: String, headers: Map<String, String>, body: String?, timeoutMs: Long): Response {
+        val r = raw(method, url, headers, body?.toByteArray(StandardCharsets.UTF_8),
+            if (body != null) "application/json; charset=utf-8" else null, timeoutMs)
+        return Response(r.code, r.headers, String(r.body, StandardCharsets.UTF_8))
+    }
+
+    private fun raw(method: String, url: String, headers: Map<String, String>, bodyBytes: ByteArray?, contentType: String?, timeoutMs: Long): BytesResponse {
         val uri = URI(url)
         val host = uri.host
         val port = if (uri.port > 0) uri.port else 80
@@ -43,9 +62,8 @@ object MiniHttp {
             val sb = StringBuilder()
             sb.append("$method $path HTTP/1.1\r\nHost: $host:$port\r\nConnection: close\r\n")
             for ((k, v) in headers) sb.append("$k: $v\r\n")
-            val bodyBytes = body?.toByteArray(StandardCharsets.UTF_8)
             if (bodyBytes != null) {
-                sb.append("Content-Type: application/json; charset=utf-8\r\n")
+                sb.append("Content-Type: $contentType\r\n")
                 sb.append("Content-Length: ${bodyBytes.size}\r\n")
             }
             sb.append("\r\n")
@@ -62,15 +80,15 @@ object MiniHttp {
                 val idx = lines[i].indexOf(':')
                 if (idx > 0) hmap[lines[i].substring(0, idx).trim().lowercase()] = lines[i].substring(idx + 1).trim()
             }
-            val bodyStr = when {
+            val bodyBytes2 = when {
                 hmap["transfer-encoding"]?.contains("chunked") == true ->
-                    String(readChunked(ch), StandardCharsets.UTF_8)
+                    readChunked(ch)
                 hmap["content-length"] != null ->
-                    String(readN(ch, hmap.getValue("content-length").toInt()), StandardCharsets.UTF_8)
-                else -> String(readToEof(ch), StandardCharsets.UTF_8)
+                    readN(ch, hmap.getValue("content-length").toInt())
+                else -> readToEof(ch)
             }
-            AppLog.log("HTTP", "<- $method $url code=$code body=${bodyStr.length}B")
-            return Response(code, hmap, bodyStr)
+            AppLog.log("HTTP", "<- $method $url code=$code body=${bodyBytes2.size}B")
+            return BytesResponse(code, hmap, bodyBytes2)
         } catch (e: Exception) {
             AppLog.error("HTTP", "!! $method $url", e)
             throw if (killer.isDone) IOException("timeout after ${timeoutMs}ms on $url") else e

@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// 聊天页状态机：历史消息 + WS 流式渲染（逻辑与 Android/macOS 版一致）。
 @MainActor
@@ -17,6 +18,9 @@ final class ChatViewModel: ObservableObject {
     /// ③ GET /sessions/{id} usage 兜底（实测可能全 0）
     @Published var contextUsed: Int?
     @Published var contextLimit: Int?
+    /// 服务端模型列表（GET /api/v1/models，进会话拉取）；
+    /// 拉取失败/为空保持空数组，模型选择 UI 回退 Constants.availableModels 预设
+    @Published var serverModels: [ModelItem] = []
 
     let sessionId: String
     /// 会话标题（/rename 成功后本地刷新，故为 @Published）
@@ -62,6 +66,18 @@ final class ChatViewModel: ObservableObject {
     @Published var questionsSubmitting = false
     @Published var aborting = false
 
+    // MARK: - 图片附件（待发送）
+
+    /// 已上传待发送的图片（PhotosPicker 选中后立即上传，发送时随 text 一起走）
+    struct PendingImage {
+        let fileId: String
+        let thumbnail: UIImage
+    }
+    /// 待发送图片（nil = 无附件）
+    @Published var pendingImage: PendingImage?
+    /// 图片上传中（防连点 + 输入区进度提示）
+    @Published var uploadingImage = false
+
     // MARK: - / 命令结果（ChatView 配合动作）
 
     /// /archive 成功：返回会话列表
@@ -85,14 +101,30 @@ final class ChatViewModel: ObservableObject {
     其他 / 开头的输入当作普通消息发送
     """
 
-    /// 上下文上限兜底：WS maxContextTokens 缺失或 ≤0 时按 1M 计算（保证任何情况都带百分比）
+    /// 上下文上限兜底：模型映射与 WS maxContextTokens 都缺失/≤0 时按 1M 计算（保证任何情况都带百分比）
     private static let defaultContextLimit = 1_048_576
 
+    /// 当前会话生效模型：模式栏设置优先，否则全局偏好（与 send 的取模逻辑一致）
+    var currentModel: String {
+        let sessionModel = agentConfig?.model ?? ""
+        return sessionModel.isEmpty ? store.model : sessionModel
+    }
+
+    /// 生效上下文上限。优先级：当前模型映射的 max_context_size（serverModels）>
+    /// WS maxContextTokens（contextLimit）> 兜底 1048576。模型切换后随 agentConfig 变化自动更新。
+    var effectiveContextLimit: Int {
+        if let item = serverModels.first(where: { $0.id == currentModel }),
+           item.maxContextSize > 0 {
+            return item.maxContextSize
+        }
+        return (contextLimit ?? 0) > 0 ? contextLimit! : Self.defaultContextLimit
+    }
+
     /// 上下文用量显示文本，固定「用量/上限 (百分比)」，如「上下文 23.5k/1000k (2%)」；
-    /// limit 取 WS maxContextTokens，>0 才用，否则兜底 1048576；used 未就绪时为 nil
+    /// limit 取 effectiveContextLimit（模型映射 > WS > 兜底）；used 未就绪时为 nil
     var contextUsageText: String? {
         guard let used = contextUsed else { return nil }
-        let limit = (contextLimit ?? 0) > 0 ? contextLimit! : Self.defaultContextLimit
+        let limit = effectiveContextLimit
         let pct = Int((Double(used) / Double(limit) * 100).rounded())
         return "上下文 \(Self.formatTokens(used))/\(Self.formatTokens(limit)) (\(pct)%)"
     }
@@ -122,6 +154,7 @@ final class ChatViewModel: ObservableObject {
         w.start()
         loadHistory()
         loadProfile()
+        loadModels()
         loadPending() // 首次进会话即拉一次审批/问答，不等待第一轮轮询
         startBusyPolling() // 周期调和：busy 15s / 空闲 60s，空闲会话徽标不冻结
     }
@@ -218,7 +251,7 @@ final class ChatViewModel: ObservableObject {
         var activeRemaining = active
         var kept: [ChatMessage] = []
         for var pending in pendingLocal {
-            if let idx = remainingHistory.firstIndex(where: { $0.role == "user" && $0.text == pending.text }) {
+            if let idx = remainingHistory.firstIndex(where: { $0.role == "user" && $0.text == pending.text && $0.imageFileId == pending.imageFileId }) {
                 remainingHistory.remove(at: idx)
                 print("[Reconcile] echo「\(pending.text.prefix(15))」→ 历史已确认，移除")
                 continue // 已被服务端历史确认
@@ -426,6 +459,19 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// 拉服务端模型列表（GET /api/v1/models，进会话时调用）；
+    /// 失败/为空保持空数组，模型选择 UI 回退 Constants.availableModels 预设；
+    /// 同时驱动 effectiveContextLimit 的模型映射（当前模型命中时上限按 max_context_size 取）
+    func loadModels() {
+        let server = store.serverURL, token = store.token
+        Task {
+            if let models = try? await APIClient.listModels(server: server, token: token),
+               !models.isEmpty {
+                serverModels = models
+            }
+        }
+    }
+
     /// 修改模式：立即写本地（每条 prompt 会随带，必然生效），
     /// 同时 POST /profile 补丁让运行中的 agent 即时生效；补丁失败仅提示，本地状态不回滚。
     /// goal_control 是控制命令（pause/resume/cancel），只走补丁、不进 prompts 字段。
@@ -453,13 +499,46 @@ final class ChatViewModel: ObservableObject {
 
     // MARK: - 发送
 
+    /// 选中图片后立即上传（POST /api/v1/files），成功暂存待发图（发送时随 text 一起走）
+    func attachImage(data: Data, fileName: String, mimeType: String) {
+        guard !uploadingImage else { return }
+        guard let thumbnail = UIImage(data: data) else {
+            toast = "无法识别该图片"
+            return
+        }
+        uploadingImage = true
+        let server = store.serverURL, token = store.token
+        Task {
+            do {
+                let fileId = try await APIClient.uploadFile(server: server, token: token,
+                                                            data: data, fileName: fileName,
+                                                            mimeType: mimeType)
+                pendingImage = PendingImage(fileId: fileId, thumbnail: thumbnail)
+            } catch let e as APIError {
+                handleAPIError(e)
+            } catch {
+                toast = "图片上传失败：\(error.localizedDescription)"
+            }
+            uploadingImage = false
+        }
+    }
+
+    /// 移除待发送图片
+    func removePendingImage() {
+        pendingImage = nil
+    }
+
     func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
         // / 开头先走命令拦截；未识别的 / 输入当普通 prompt 发送
         if trimmed.hasPrefix("/"), handleSlash(trimmed) { return }
+        // 图文混排：已上传的待发图随本条 prompt 一起走（text 可空，纯图也允许）
+        let image = pendingImage
+        guard !trimmed.isEmpty || image != nil else { return }
         let local = ChatMessage(id: "local-\(UUID().uuidString)",
-                                role: "user", text: trimmed, createdAt: Date())
+                                role: "user", text: trimmed, createdAt: Date(),
+                                imageFileId: image?.fileId)
+        pendingImage = nil
         messages.append(local)
         pendingLocal.append(local)
         statusText = "正在思考…"
@@ -473,6 +552,7 @@ final class ChatViewModel: ObservableObject {
             do {
                 let status = try await APIClient.sendPrompt(server: server, token: token, sessionId: sid,
                                                             text: trimmed, model: model,
+                                                            imageFileId: image?.fileId,
                                                             modeFields: modeFields)
                 if status == "queued" {
                     statusText = "排队中…"

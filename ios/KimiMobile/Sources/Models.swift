@@ -7,7 +7,7 @@ struct HostProfile: Identifiable, Codable, Equatable {
     var url: String
 }
 
-struct SessionItem: Identifiable, Equatable {
+struct SessionItem: Identifiable, Equatable, Hashable {
     let id: String
     let title: String
     let updatedAt: String
@@ -36,6 +36,8 @@ struct ChatMessage: Identifiable, Equatable {
     /// 判定被服务端丢弃（上游 bug #3127 幻影 busy 吞排队 prompt），UI 红色警示
     var deliveryFailed: Bool = false
     var createdAt: Date? = nil
+    /// 图片附件（content image 块 source.file_id；显示走 GET /api/v1/files/{id} 带 Authorization）
+    var imageFileId: String? = nil
     /// 工具活动条目（role == "tool"）：工具名与完成标记，turn 结束历史刷新时随列表替换消失
     var toolName: String = ""
     var toolDone: Bool = false
@@ -70,10 +72,21 @@ struct QuestionOption: Identifiable, Equatable {
     let description: String
 }
 
+/// 服务端模型条目（GET /api/v1/models 的 data.items[]）
+struct ModelItem: Equatable {
+    let provider: String
+    let model: String
+    let displayName: String
+    let maxContextSize: Int
+
+    /// 完整模型 id（provider/model，即 profile agent_config.model 的格式）
+    var id: String { provider.isEmpty ? model : "\(provider)/\(model)" }
+}
+
 enum Constants {
     static let defaultModel = "kimi-code/k3"
     static let defaultWorkspaceRoot = "/tmp/kimi-workspace"
-    /// 可选模型（与服务端目录一致）
+    /// 可选模型兜底预设：GET /api/v1/models 拉取失败/为空时使用
     static let availableModels = [
         "kimi-code/k3",
         "kimi-code/kimi-for-coding",

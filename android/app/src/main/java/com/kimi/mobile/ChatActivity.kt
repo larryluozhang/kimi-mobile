@@ -4,9 +4,13 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -17,6 +21,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -25,6 +30,7 @@ import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -50,7 +56,24 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private lateinit var tvLoadEarlier: TextView
     private lateinit var etInput: EditText
     private lateinit var btnMic: ImageButton
+    private lateinit var btnPick: ImageButton
     private lateinit var btnSend: Button
+
+    // ---------- 待发图片 ----------
+    private lateinit var imagePreviewBar: LinearLayout
+    private lateinit var ivImagePreview: ImageView
+    private lateinit var tvImageState: TextView
+    /** 上传完成待发送的图片 file_id（null=无待发图） */
+    @Volatile private var pendingImageFileId: String? = null
+    /** 待发图本地预览缩略图 */
+    private var pendingImageBitmap: Bitmap? = null
+    @Volatile private var imageUploading = false
+
+    /** 系统 Photo Picker（ACTION_PICK_IMAGES，无需存储权限；旧设备自动回退 ACTION_OPEN_DOCUMENT） */
+    private val pickImage =
+        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri != null) onImagePicked(uri)
+        }
 
     private var ws: WsClient? = null
     private var speechRecognizer: SpeechRecognizer? = null
@@ -79,7 +102,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private var keepScrollOnNextRefresh = false
 
     // ---------- 上下文用量 ----------
-    /** 已用/上限 token（-1 表示未知）；WS 快照与 meta.merge 为优先来源，REST 仅兜底 */
+    /** 已用/上限 token（-1 表示未知）；用量以 WS 快照与 meta.merge 为优先来源，REST 仅兜底；
+     *  上限展示时优先按当前模型的 max_context_size（listModels），见 updateContextView */
     @Volatile private var contextTokens = -1L
     @Volatile private var contextLimit = -1L
 
@@ -99,13 +123,12 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private lateinit var etGoal: EditText
     private lateinit var tvGoalSummary: TextView
 
-    private val modelPresets = listOf(
-        "kimi-code/k3",
-        "kimi-code/kimi-for-coding",
-        "kimi-code/kimi-for-coding-highspeed",
-        "kimi-code/k3-256k"
-    )
+    private val modelPresets = Api.MODEL_PRESETS
+    /** Spinner 选项值（完整 model id）与展示名（服务端 display_name；预置去 provider 前缀） */
     private var modelChoices: List<String> = modelPresets
+    private var modelLabels: List<String> = modelPresets.map { it.removePrefix("kimi-code/") }
+    /** 服务端模型列表（含 max_context_size）；为空表示未拉取/拉取失败，回退预置 */
+    @Volatile private var serverModels: List<ModelItem> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -127,12 +150,27 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         tvLoadEarlier.setOnClickListener { loadEarlierHistory() }
         etInput = findViewById(R.id.etInput)
         btnMic = findViewById(R.id.btnMic)
+        btnPick = findViewById(R.id.btnPick)
         btnSend = findViewById(R.id.btnSend)
+        imagePreviewBar = findViewById(R.id.imagePreviewBar)
+        ivImagePreview = findViewById(R.id.ivImagePreview)
+        tvImageState = findViewById(R.id.tvImageState)
+        btnPick.setOnClickListener {
+            pickImage.launch(
+                androidx.activity.result.PickVisualMediaRequest(
+                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                )
+            )
+        }
+        findViewById<Button>(R.id.btnRemoveImage).setOnClickListener { clearPendingImage() }
 
         recycler = findViewById(R.id.recyclerMessages)
         recycler.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
         adapter = MessageAdapter()
         adapter.onForkFrom = { msg -> forkFromMessage(msg) }
+        // 图片气泡加载所需（MessageAdapter.bindImage 子线程 GET /api/v1/files/{id}）
+        adapter.serverUrl = Prefs.serverUrl(this)
+        adapter.authToken = Prefs.token(this)
         recycler.adapter = adapter
 
         btnSend.setOnClickListener { sendCurrentText() }
@@ -140,6 +178,7 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         setupModeBar()
         loadHistory()
         loadProfile()
+        loadModels()
     }
 
     override fun onStart() {
@@ -528,14 +567,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                 else -> R.id.rbManual
             }
         )
-        // 模型下拉里保留服务端返回的非预置值
-        modelChoices = if (p.model.isNotEmpty() && p.model !in modelPresets) modelPresets + p.model else modelPresets
-        spinnerModel.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            modelChoices.map { it.removePrefix("kimi-code/") }
-        )
-        spinnerModel.setSelection(modelChoices.indexOf(p.model).coerceAtLeast(0))
+        // 模型下拉：服务端动态列表（display_name）优先，回退预置；保留当前会话的非列表值
+        refreshModelChoices()
         // 目标区：有目标显示摘要+控制，无目标显示创建行
         if (p.goalObjective.isEmpty()) {
             goalCreate.visibility = View.VISIBLE
@@ -547,6 +580,51 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         }
         suppressProfileCallbacks = false
         updateModeSummary(p)
+        // 模型切换后上下文上限按新模型 max_context_size 刷新
+        updateContextView()
+    }
+
+    /** 重建模型下拉：服务端列表（display_name 展示，model id 为值）优先；空则回退预置。
+     *  当前会话模型不在列表时追加保留（服务端已删/自定义值） */
+    private fun refreshModelChoices() {
+        val current = profile?.model.orEmpty()
+        if (serverModels.isNotEmpty()) {
+            modelChoices = serverModels.map { it.model }
+            modelLabels = serverModels.map { it.displayName }
+        } else {
+            modelChoices = modelPresets
+            modelLabels = modelPresets.map { it.removePrefix("kimi-code/") }
+        }
+        if (current.isNotEmpty() && current !in modelChoices) {
+            modelChoices = modelChoices + current
+            modelLabels = modelLabels + current
+        }
+        spinnerModel.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            modelLabels
+        )
+        spinnerModel.setSelection(modelChoices.indexOf(current).coerceAtLeast(0))
+    }
+
+    /** 进会话拉取服务端模型列表：成功则替换模式栏模型下拉；失败/为空静默回退 4 个预置 */
+    private fun loadModels() {
+        Thread {
+            try {
+                val models = Api.listModels(server(), token())
+                if (models.isEmpty()) return@Thread
+                handler.post {
+                    serverModels = models
+                    suppressProfileCallbacks = true
+                    refreshModelChoices()
+                    suppressProfileCallbacks = false
+                    // 当前模型的 max_context_size 已可用，刷新上下文上限显示
+                    updateContextView()
+                }
+            } catch (e: Exception) {
+                // 旧服务端无此接口/网络抖动：静默回退预置
+            }
+        }.start()
     }
 
     /** 常驻概要条；计划/Swarm/目标激活时高亮提示 */
@@ -618,9 +696,11 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                             return@post
                         }
                     }
-                    // 服务端历史里已出现相同文本的 user 消息 → 回显已确认，从 pendingLocal 移除
+                    // 服务端历史里已出现相同文本+图片的 user 消息 → 回显已确认，从 pendingLocal 移除
                     pendingLocal.removeAll { p ->
-                        val confirmed = history.any { it.role == "user" && it.text.trim() == p.text.trim() }
+                        val confirmed = history.any {
+                            it.role == "user" && it.text.trim() == p.text.trim() && it.imageFileId == p.imageFileId
+                        }
                         if (confirmed) Log.d(TAG, "echo ${p.id} 已被历史确认: ${p.text.take(30)}")
                         confirmed
                     }
@@ -676,8 +756,9 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                     // 排序后自然排在最前；与最新页按 id 去重（防 before_id 边界重叠）
                     val latestIds = history.mapTo(HashSet()) { it.id }
                     val allHistory = earlierHistory.filter { it.id !in latestIds } + history
-                    val msgs = (allHistory.map { ChatMsg(it.id, it.role, it.text, timeMillis = parseIso(it.createdAt)) } +
-                        queuedMsgs + pendingLocal)
+                    val msgs = (allHistory.map {
+                        ChatMsg(it.id, it.role, it.text, timeMillis = parseIso(it.createdAt), imageFileId = it.imageFileId)
+                    } + queuedMsgs + pendingLocal)
                         .sortedWith(compareBy({ it.timeMillis <= 0L }, { it.timeMillis }))
                     toolItems.clear()
                     adapter.setAll(msgs)
@@ -794,22 +875,121 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         handler.removeCallbacks(historyPoll)
     }
 
+    // ---------- 图片选择与上传（图文消息） ----------
+
+    /** Photo Picker 回调：读字节 → 本地缩略图预览 → 子线程上传 /api/v1/files，成功暂存 file_id 待发送 */
+    private fun onImagePicked(uri: Uri) {
+        val bytes = try {
+            contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        } catch (e: Exception) {
+            null
+        }
+        if (bytes == null || bytes.isEmpty()) {
+            Toast.makeText(this, "读取图片失败", Toast.LENGTH_LONG).show()
+            return
+        }
+        val mime = contentResolver.getType(uri) ?: "image/jpeg"
+        pendingImageBitmap = decodePreview(bytes)
+        pendingImageFileId = null
+        imageUploading = true
+        showImagePreview("上传中…")
+        Thread {
+            try {
+                val fid = Api.uploadFile(server(), token(), bytes, queryDisplayName(uri), mime)
+                handler.post {
+                    imageUploading = false
+                    pendingImageFileId = fid
+                    showImagePreview("待发送，随下一条消息发出")
+                }
+            } catch (e: ApiException) {
+                handler.post {
+                    imageUploading = false
+                    clearPendingImage()
+                    handleApiError(e)
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    imageUploading = false
+                    clearPendingImage()
+                    Toast.makeText(this, "图片上传失败：${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    /** 输入区预览条：显示缩略图与状态文案（上传中…/待发送） */
+    private fun showImagePreview(state: String) {
+        ivImagePreview.setImageBitmap(pendingImageBitmap)
+        tvImageState.text = state
+        imagePreviewBar.visibility = View.VISIBLE
+    }
+
+    /** 移除/发送后清空待发图片状态并隐藏预览条 */
+    private fun clearPendingImage() {
+        pendingImageFileId = null
+        pendingImageBitmap = null
+        imageUploading = false
+        ivImagePreview.setImageDrawable(null)
+        imagePreviewBar.visibility = View.GONE
+    }
+
+    /** 取相册文件显示名（OpenableColumns），取不到回退 image.jpg */
+    private fun queryDisplayName(uri: Uri): String {
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && c.moveToFirst()) {
+                    val name = c.getString(idx)
+                    if (!name.isNullOrEmpty()) return name
+                }
+            }
+        } catch (e: Exception) {
+            // 回退默认名
+        }
+        return "image.jpg"
+    }
+
+    /** 本地预览缩略图解码（降采样到长边 ~256px），失败返回 null（预览条仅显示状态文案） */
+    private fun decodePreview(bytes: ByteArray): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            var sample = 1
+            val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+            while (maxDim / (sample * 2) > 256) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // ---------- 发送 ----------
 
     private fun sendCurrentText() {
+        if (imageUploading) {
+            Toast.makeText(this, "图片仍在上传中，请稍候", Toast.LENGTH_SHORT).show()
+            return
+        }
         val text = etInput.text.toString().trim()
-        if (text.isEmpty()) return
+        val imageId = pendingImageFileId
+        if (text.isEmpty() && imageId.isNullOrEmpty()) return
         etInput.setText("")
         // 斜杠命令拦截：未命中的 / 开头文本按普通 prompt 发送（与官方一致）
         if (text.startsWith("/") && handleSlash(text)) return
-        val local = ChatMsg("local-" + System.currentTimeMillis(), "user", text, timeMillis = System.currentTimeMillis())
+        val local = ChatMsg(
+            "local-" + System.currentTimeMillis(), "user", text,
+            timeMillis = System.currentTimeMillis(),
+            imageFileId = imageId.orEmpty()
+        )
+        clearPendingImage()
         pendingLocal.add(local)
         adapter.add(local)
         scrollToBottom()
         showStatus("正在思考…")
         Thread {
             try {
-                val status = Api.sendPrompt(server(), token(), sessionId, text, Prefs.model(this@ChatActivity), profile)
+                val status = Api.sendPrompt(server(), token(), sessionId, text, Prefs.model(this@ChatActivity), profile, imageId)
                 handler.post {
                     if (status == "queued") {
                         showStatus("排队中，等待当前任务完成…")
@@ -1396,10 +1576,16 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
             tvContext.visibility = View.GONE
             return
         }
-        // limit 取 WS maxContextTokens（>0 才用），否则兜底 1M（实测服务端快照值）；任何情况都带百分比
-        val limit = if (contextLimit > 0) contextLimit else 1048576L
+        // limit 优先级：当前模型的 max_context_size > WS maxContextTokens > 兜底 1M（实测服务端快照值）
+        val limit = currentModelLimit() ?: if (contextLimit > 0) contextLimit else 1048576L
         tvContext.text = "上下文 ${fmtTokens(contextTokens)}/${fmtTokens(limit)} (${contextTokens * 100 / limit}%)"
         tvContext.visibility = View.VISIBLE
+    }
+
+    /** 当前会话模型（会话级模式档 model，空则全局设置）映射到的 max_context_size；未匹配/未拉取返回 null */
+    private fun currentModelLimit(): Long? {
+        val modelId = profile?.model?.ifEmpty { null } ?: Prefs.model(this)
+        return serverModels.firstOrNull { it.model == modelId }?.maxContextSize?.takeIf { it > 0 }
     }
 
     /** token 数格式化：≥1000 用 k（23.5k / 1000k），否则原样；固定 US locale 避免小数点本地化 */

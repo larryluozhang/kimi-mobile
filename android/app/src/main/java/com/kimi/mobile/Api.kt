@@ -1,6 +1,7 @@
 package com.kimi.mobile
 
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -26,11 +27,21 @@ data class WorkspaceItem(
     val sessionCount: Int = 0
 )
 
+/** 服务端模型条目（GET /api/v1/models）：model 为完整 id（provider/model），display_name 用于展示 */
+data class ModelItem(
+    val provider: String,
+    val model: String,
+    val displayName: String,
+    val maxContextSize: Long
+)
+
 data class HistoryMessage(
     val id: String,
     val role: String,
     val text: String,
-    val createdAt: String = ""
+    val createdAt: String = "",
+    /** 消息内首个图片块的 file_id（无图片块为 ""）；二进制经 GET /api/v1/files/{id} 拉回 */
+    val imageFileId: String = ""
 )
 
 /** 一页历史消息：过滤后的可见消息 + 分页元信息。
@@ -124,6 +135,14 @@ object Api {
         }
     }
 
+    /** 模型列表拉取失败/为空时的兜底预置（完整 model id） */
+    val MODEL_PRESETS = listOf(
+        "kimi-code/k3",
+        "kimi-code/kimi-for-coding",
+        "kimi-code/kimi-for-coding-highspeed",
+        "kimi-code/k3-256k"
+    )
+
     private fun checkAuth(code: Int, body: String): JSONObject {
         if (code == 401 || code == 403) throw ApiException(code, "Token 无效或已过期（HTTP $code）")
         if (code != 200) throw ApiException(code, "HTTP $code: ${body.take(200)}")
@@ -153,6 +172,31 @@ object Api {
                         updatedAt = s.optString("updated_at", ""),
                         busy = s.optBoolean("busy", false),
                         workspaceId = s.optString("workspace_id", "")
+                    )
+                )
+            }
+            return out
+        }
+    }
+
+    /** 拉取服务端模型列表：GET /api/v1/models → data.items[]（provider/model/display_name/max_context_size） */
+    fun listModels(server: String, token: String): List<ModelItem> {
+        val req = builder(server, token, "/api/v1/models").build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            val data = checkAuth(resp.code, body)
+            val items = data.optJSONArray("items") ?: JSONArray()
+            val out = ArrayList<ModelItem>()
+            for (i in 0 until items.length()) {
+                val m = items.optJSONObject(i) ?: continue
+                val id = m.optString("model", "")
+                if (id.isEmpty()) continue
+                out.add(
+                    ModelItem(
+                        provider = m.optString("provider", ""),
+                        model = id,
+                        displayName = m.optString("display_name", "").ifEmpty { id },
+                        maxContextSize = m.optLong("max_context_size", 0)
                     )
                 )
             }
@@ -220,21 +264,31 @@ object Api {
                 if (role != "user" && role != "assistant") continue
                 val content = m.optJSONArray("content") ?: continue
                 val sb = StringBuilder()
+                var imageFileId = ""
                 for (j in 0 until content.length()) {
                     val block = content.optJSONObject(j) ?: continue
-                    // 只渲染 text 块；thinking 等其余块不进入正文
-                    if (block.optString("type") == "text") {
-                        val text = block.optString("text", "")
-                        // 隐藏系统注入的用户消息块（日期提醒、cron 信封等），与官方 web UI 一致
-                        if (role == "user" && isSystemInjected(text)) continue
-                        if (text.isEmpty()) continue
-                        if (sb.isNotEmpty()) sb.append('\n')
-                        sb.append(text)
+                    when (block.optString("type")) {
+                        // 只渲染 text 块；thinking 等其余块不进入正文
+                        "text" -> {
+                            val text = block.optString("text", "")
+                            // 隐藏系统注入的用户消息块（日期提醒、cron 信封等），与官方 web UI 一致
+                            if (role == "user" && isSystemInjected(text)) continue
+                            if (text.isEmpty()) continue
+                            if (sb.isNotEmpty()) sb.append('\n')
+                            sb.append(text)
+                        }
+                        // image 块单独提取 file_id（取首个非空；source.kind="file"）
+                        "image" -> {
+                            if (imageFileId.isEmpty()) {
+                                val fid = block.optJSONObject("source")?.optString("file_id", "").orEmpty()
+                                if (fid.isNotEmpty()) imageFileId = fid
+                            }
+                        }
                     }
                 }
-                // 所有块都被过滤的消息整条不显示
-                if (sb.isNotEmpty()) {
-                    out.add(HistoryMessage(m.optString("id"), role, sb.toString(), m.optString("created_at", "")))
+                // 所有块都被过滤的消息整条不显示；纯图片消息（无 text 块）保留
+                if (sb.isNotEmpty() || imageFileId.isNotEmpty()) {
+                    out.add(HistoryMessage(m.optString("id"), role, sb.toString(), m.optString("created_at", ""), imageFileId))
                 }
             }
             // API 返回最新在前，反转为时间正序（最旧在上）再渲染
@@ -285,11 +339,41 @@ object Api {
         }
     }
 
-    /** 发送 prompt，返回服务端 status（"running" / "queued"；busy 时服务端排队，消息暂不进入历史） */
-    fun sendPrompt(server: String, token: String, sessionId: String, text: String, model: String, modes: SessionProfile? = null): String {
-        val content = JSONArray().put(
-            JSONObject().put("type", "text").put("text", text)
-        )
+    /** 上传文件：POST /api/v1/files（multipart/form-data，字段名 file），返回 data.id（file_id） */
+    fun uploadFile(server: String, token: String, bytes: ByteArray, fileName: String, mimeType: String): String {
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", fileName, bytes.toRequestBody(mimeType.toMediaType()))
+            .build()
+        val req = builder(server, token, "/api/v1/files").post(body).build()
+        client.newCall(req).execute().use { resp ->
+            val respBody = resp.body?.string() ?: ""
+            val data = checkAuth(resp.code, respBody)
+            return data.getString("id")
+        }
+    }
+
+    /** 拉取文件二进制：GET /api/v1/files/{file_id}（历史消息图片块显示用），非 2xx 抛 ApiException */
+    fun fetchFile(server: String, token: String, fileId: String): ByteArray {
+        val req = builder(server, token, "/api/v1/files/$fileId").build()
+        client.newCall(req).execute().use { resp ->
+            if (resp.code == 401 || resp.code == 403) throw ApiException(resp.code, "Token 无效或已过期（HTTP ${resp.code}）")
+            if (!resp.isSuccessful) throw ApiException(resp.code, "HTTP ${resp.code}")
+            return resp.body?.bytes() ?: ByteArray(0)
+        }
+    }
+
+    /** 发送 prompt，返回服务端 status（"running" / "queued"；busy 时服务端排队，消息暂不进入历史）。
+     *  imageFileId 非空时 content 数组前插 image 块（source.kind="file"），与 text 块混排；纯图片（text 为空）也可发 */
+    fun sendPrompt(server: String, token: String, sessionId: String, text: String, model: String, modes: SessionProfile? = null, imageFileId: String? = null): String {
+        val content = JSONArray()
+        if (!imageFileId.isNullOrEmpty()) {
+            content.put(
+                JSONObject().put("type", "image")
+                    .put("source", JSONObject().put("kind", "file").put("file_id", imageFileId))
+            )
+        }
+        content.put(JSONObject().put("type", "text").put("text", text))
         val payload = JSONObject()
             .put("content", content)
             // 模式栏有会话级模型时优先；否则用全局设置

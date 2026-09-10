@@ -1,5 +1,6 @@
 package com.kimi.desktop
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,19 +50,35 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.ByteArrayInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** 输入区待发图片：选中后立即上传拿到 file_id（发送时图文一起走）；本地字节用于预览与回显 */
+private data class PendingImage(val fileId: String, val bytes: ByteArray, val name: String)
+
+/** 常见图片扩展名 → MIME（FileDialog 选图后推断，未知按 png 处理） */
+private fun imageMime(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
+    "jpg", "jpeg" -> "image/jpeg"
+    "gif" -> "image/gif"
+    "webp" -> "image/webp"
+    "bmp" -> "image/bmp"
+    else -> "image/png"
+}
 
 @Composable
 fun MainScreen(state: AppState) {
@@ -100,7 +117,7 @@ fun MainScreen(state: AppState) {
     }
 }
 
-/** WS 未上报 maxContextTokens（<=0）时的上下文上限兜底：1M */
+/** WS 与模型列表都不可用时上下文上限兜底：1M */
 private const val FALLBACK_CONTEXT_LIMIT = 1048576L
 
 /** token 数格式化：>=1000 显示为 k（23500 → "23.5k"，1000000 → "1000k"）；小数固定 Locale.US，避免某些 locale 下出现 "690,k"/"690.k" */
@@ -110,9 +127,22 @@ private fun formatTokenCount(n: Long): String =
         if (k == k.toLong().toDouble()) "${k.toLong()}k" else "%.1fk".format(java.util.Locale.US, k)
     } else "$n"
 
-/** 上下文使用量展示：固定 "用量/上限 (百分比)"（如 "23.5k/1000k (2%)"）；上限取 WS maxContextTokens，>0 才用，否则兜底 1M */
-private fun formatContextUsage(contextTokens: Long, maxContextTokens: Long): String {
-    val limit = if (maxContextTokens > 0) maxContextTokens else FALLBACK_CONTEXT_LIMIT
+/**
+ * 上下文上限：当前模型（会话级 profile.model，空则全局默认 model）在服务端模型列表中的 max_context_size
+ * > WS maxContextTokens（>0 才用）> 兜底 1M。读 snapshot 状态，模型切换后随重组自动更新。
+ */
+private fun contextLimit(state: AppState): Long {
+    val current = state.sessionProfile?.model?.ifEmpty { null } ?: state.model
+    val byModel = state.modelItems.firstOrNull { it.model == current }?.maxContextSize ?: -1
+    return when {
+        byModel > 0 -> byModel
+        state.maxContextTokens > 0 -> state.maxContextTokens
+        else -> FALLBACK_CONTEXT_LIMIT
+    }
+}
+
+/** 上下文使用量展示：固定 "用量/上限 (百分比)"（如 "23.5k/1000k (2%)"）；上限取 contextLimit(state) */
+private fun formatContextUsage(contextTokens: Long, limit: Long): String {
     val pct = contextTokens * 100 / limit
     return "${formatTokenCount(contextTokens)}/${formatTokenCount(limit)} ($pct%)"
 }
@@ -163,7 +193,7 @@ private suspend fun refreshHistory(state: AppState, sessionId: String): Api.Prom
         }
         state.historyHasMore = page.hasMore
         state.reconcileHistory(
-            page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt)) },
+            page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt), imageFileIds = it.imageFileIds) },
             sessionId,
             prompts.queued,
             prompts.active
@@ -192,7 +222,7 @@ private fun loadOlderMessages(state: AppState, scope: kotlinx.coroutines.Corouti
             }
             if (state.activeSessionId != sessionId) return@launch // 拉取期间已切走
             state.prependOlderHistory(
-                page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt)) }
+                page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt), imageFileIds = it.imageFileIds) }
             )
             state.historyHasMore = page.hasMore
             state.olderLoadedOnce = true
@@ -372,6 +402,9 @@ private fun Sidebar(state: AppState, scope: kotlinx.coroutines.CoroutineScope, m
 private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, modifier: Modifier) {
     val sessionId = state.activeSessionId
     var input by remember { mutableStateOf("") }
+    // 待发图片与上传中标记（切会话不保留，与输入框同为页面级状态）
+    var pendingImage by remember { mutableStateOf<PendingImage?>(null) }
+    var imageUploading by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 切换会话：加载历史 + 服务端排队列表 + 建立 WS 订阅
@@ -398,7 +431,7 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             if (state.activeSessionId != sessionId) return@LaunchedEffect // 拉取期间已切走
             state.historyHasMore = page.hasMore
             state.reconcileHistory(
-                page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt)) },
+                page.messages.map { ChatMessage(it.id, it.role, it.text, timeMillis = isoToMillis(it.createdAt), imageFileIds = it.imageFileIds) },
                 sessionId,
                 prompts.queued,
                 prompts.active
@@ -435,6 +468,9 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                 state.sessionProfile = Api.SessionProfile("", "", "manual", false, false, "", "")
             }
         }
+
+        // 上下文上限改为按当前模型 max_context_size（进会话时拉取模型列表，含 max_context_size）
+        loadModelList(state)
 
         // 上下文使用量兜底：WS reset 快照/meta.merge 未上报时，GET /sessions/{id} usage（实测可能全 0）
         try {
@@ -644,11 +680,11 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             ) {
                 val title = state.sessions.firstOrNull { it.id == sessionId }?.title ?: "未选择会话"
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                // 上下文使用量（WS reset 快照/meta.merge 上报，GET session usage 兜底）
+                // 上下文使用量（WS reset 快照/meta.merge 上报，GET session usage 兜底；上限按当前模型 max_context_size）
                 if (state.contextTokens >= 0) {
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        formatContextUsage(state.contextTokens, state.maxContextTokens),
+                        formatContextUsage(state.contextTokens, contextLimit(state)),
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -763,7 +799,8 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                         MessageBubble(
                             m.role, m.text,
                             queued = m.queued, executing = m.executing, undelivered = m.undelivered,
-                            onForkFromHere = if (m.role == "user") ({ doForkFrom(idx) }) else null
+                            onForkFromHere = if (m.role == "user") ({ doForkFrom(idx) }) else null,
+                            imageFileIds = m.imageFileIds, localImageBytes = m.localImageBytes
                         )
                     }
                     items(state.frames, key = { "f-" + it.frameId }) { f ->
@@ -901,25 +938,29 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                 }
             )
         }
-        // 回车发送（Shift+Enter 换行），与发送按钮共用同一逻辑
+        // 回车发送（Shift+Enter 换行），与发送按钮共用同一逻辑；图文一起走（图片先上传为 file_id）
         val doSend: () -> Unit = {
             val text = input.trim()
-            if (text.isNotEmpty() && sessionId.isNotEmpty()) {
+            val img = pendingImage
+            if ((text.isNotEmpty() || img != null) && sessionId.isNotEmpty() && !imageUploading) {
                 input = ""
-                if (text.startsWith("/") && handleSlash(text)) {
+                // / 命令仅纯文本时拦截；带图时不解析（图片保留待发）
+                if (img == null && text.startsWith("/") && handleSlash(text)) {
                     AppLog.log("SEND", "执行命令: $text")
                 } else {
+                pendingImage = null
+                val imgIds = if (img != null) listOf(img.fileId) else emptyList()
                 val echoId = "local-" + System.currentTimeMillis()
-                state.messages.add(ChatMessage(echoId, "user", text, timeMillis = System.currentTimeMillis()))
+                state.messages.add(ChatMessage(echoId, "user", text, timeMillis = System.currentTimeMillis(), imageFileIds = imgIds, localImageBytes = img?.bytes))
                 state.busy = true
-                AppLog.log("SEND", "发送消息 len=${text.length} session=$sessionId")
+                AppLog.log("SEND", "发送消息 len=${text.length} image=${img?.fileId ?: "-"} session=$sessionId")
                 scope.launch {
                     try {
                         val status = withContext(Dispatchers.IO) {
-                            Api.sendPrompt(state.server(), state.token(), sessionId, text, state.model, state.sessionProfile)
+                            Api.sendPrompt(state.server(), state.token(), sessionId, text, state.model, state.sessionProfile, imageFileId = img?.fileId)
                         }
-                        // 回显登记为待确认（按会话隔离）：历史刷新时按文本确认移除；queued 期间头部提示"排队中"
-                        state.pendingEchoes.add(PendingEcho(echoId, sessionId, text, queued = status == "queued"))
+                        // 回显登记为待确认（按会话隔离）：历史刷新时按文本+图片确认移除；queued 期间头部提示"排队中"
+                        state.pendingEchoes.add(PendingEcho(echoId, sessionId, text, queued = status == "queued", imageFileIds = imgIds, localImageBytes = img?.bytes))
                         AppLog.log("SEND", "发送成功 status=$status，等待 WS 流式回复")
                     } catch (e: ApiException) {
                         state.busy = false
@@ -946,10 +987,86 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                 }
             }
         }
+        // 待发图片预览：缩略图 + 文件名 + 移除按钮
+        pendingImage?.let { img ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val thumb = remember(img.bytes) {
+                    runCatching { loadImageBitmap(ByteArrayInputStream(img.bytes)) }.getOrNull()
+                }
+                if (thumb != null) {
+                    Image(
+                        bitmap = thumb,
+                        contentDescription = img.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp))
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    img.name,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { pendingImage = null }) {
+                    Text("移除", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.Bottom
         ) {
+            // 图片按钮：AWT FileDialog 选图（Swing 线程内同步弹窗），选中后立即上传暂存
+            TextButton(
+                onClick = {
+                    val fd = java.awt.FileDialog(null as java.awt.Frame?, "选择图片", java.awt.FileDialog.LOAD)
+                    fd.setFilenameFilter { _, name ->
+                        name.lowercase().let { n ->
+                            n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") ||
+                                n.endsWith(".gif") || n.endsWith(".webp") || n.endsWith(".bmp")
+                        }
+                    }
+                    fd.isVisible = true
+                    val dir = fd.directory
+                    val file = fd.file
+                    if (dir != null && file != null) {
+                        val f = java.io.File(dir, file)
+                        imageUploading = true
+                        scope.launch {
+                            try {
+                                val bytes = withContext(Dispatchers.IO) { f.readBytes() }
+                                val fid = withContext(Dispatchers.IO) {
+                                    Api.uploadFile(state.server(), state.token(), f.name, bytes, imageMime(f.name))
+                                }
+                                if (fid.isNotEmpty()) {
+                                    pendingImage = PendingImage(fid, bytes, f.name)
+                                    AppLog.log("IMG", "图片已上传 fileId=$fid name=${f.name} size=${bytes.size}")
+                                } else {
+                                    state.chatError = "图片上传失败：服务端未返回 file_id"
+                                }
+                            } catch (e: ApiException) {
+                                AppLog.error("IMG", "图片上传失败", e)
+                                if (e.httpCode == 401 || e.httpCode == 403) state.onAuthFailure(e.message ?: "认证失败")
+                                else state.chatError = "图片上传失败：${e.message}"
+                            } catch (e: Throwable) {
+                                AppLog.error("IMG", "图片上传异常", e)
+                                state.chatError = "图片上传失败：${e.message}"
+                            } finally {
+                                imageUploading = false
+                            }
+                        }
+                    }
+                },
+                enabled = sessionId.isNotEmpty() && !imageUploading
+            ) {
+                Text(if (imageUploading) "上传中…" else "图片", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+            }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -967,7 +1084,7 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             Spacer(Modifier.width(8.dp))
             IconButton(
                 onClick = { doSend() },
-                enabled = sessionId.isNotEmpty() && input.isNotBlank()
+                enabled = sessionId.isNotEmpty() && !imageUploading && (input.isNotBlank() || pendingImage != null)
             ) {
                 Icon(Icons.Default.Send, contentDescription = "发送", tint = MaterialTheme.colorScheme.primary)
             }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.ContextMenuState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,17 +25,74 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.ByteArrayInputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/** 气泡图片内存缓存（file_id → ImageBitmap，LRU 上限 32 张）：滚动重组/历史刷新时避免重复回拉 */
+private object ChatImageCache {
+    private const val MAX = 32
+    private val cache = object : LinkedHashMap<String, ImageBitmap>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > MAX
+    }
+    @Synchronized fun get(fileId: String): ImageBitmap? = cache[fileId]
+    @Synchronized fun put(fileId: String, bmp: ImageBitmap) { cache[fileId] = bmp }
+}
+
+/** 按 file_id 拉回并显示服务端图片（子线程 GET /api/v1/files/{id} → ImageBitmap，走 ChatImageCache） */
+@Composable
+private fun RemoteBubbleImage(fileId: String) {
+    var bmp by remember(fileId) { mutableStateOf(ChatImageCache.get(fileId)) }
+    var failed by remember(fileId) { mutableStateOf(false) }
+    LaunchedEffect(fileId) {
+        if (bmp != null || failed) return@LaunchedEffect
+        try {
+            val bytes = withContext(Dispatchers.IO) {
+                Api.downloadFile(Prefs.serverUrl(), Prefs.token(), fileId)
+            }
+            val decoded = loadImageBitmap(ByteArrayInputStream(bytes))
+            ChatImageCache.put(fileId, decoded)
+            bmp = decoded
+        } catch (e: Exception) {
+            AppLog.error("IMG", "拉回图片失败 fileId=$fileId", e)
+            failed = true
+        }
+    }
+    val b = bmp
+    if (b != null) {
+        Image(
+            bitmap = b,
+            contentDescription = "图片",
+            contentScale = ContentScale.FillWidth,
+            modifier = Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(8.dp))
+        )
+    } else {
+        Text(
+            if (failed) "⚠ 图片加载失败" else "图片加载中…",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
 
 private data class Segment(val isCode: Boolean, val text: String)
 
@@ -69,7 +127,11 @@ fun MessageBubble(
     queued: Boolean = false,
     executing: Boolean = false,
     undelivered: Boolean = false,
-    onForkFromHere: (() -> Unit)? = null
+    onForkFromHere: (() -> Unit)? = null,
+    /** 服务端 image 块的 file_id 列表（无 localImageBytes 时逐个回拉显示） */
+    imageFileIds: List<String> = emptyList(),
+    /** 本地回显的待发图片字节（已上传未确认期间直接显示本地图） */
+    localImageBytes: ByteArray? = null
 ) {
     val isUser = role == "user"
     val isThinking = role == "thinking"
@@ -146,6 +208,29 @@ fun MessageBubble(
                         )
                         Spacer(Modifier.height(4.dp))
                     }
+                    // 图片：本地回显直接解码本地字节；已确认的历史消息按 file_id 回拉
+                    val localBmp = remember(localImageBytes) {
+                        localImageBytes?.let { runCatching { loadImageBitmap(ByteArrayInputStream(it)) }.getOrNull() }
+                    }
+                    if (localBmp != null) {
+                        Image(
+                            bitmap = localBmp,
+                            contentDescription = "图片",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(8.dp))
+                        )
+                        if (text.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                    } else if (imageFileIds.isNotEmpty()) {
+                        Column {
+                            for (fid in imageFileIds) {
+                                RemoteBubbleImage(fid)
+                                Spacer(Modifier.height(4.dp))
+                            }
+                        }
+                        if (text.isNotEmpty()) Spacer(Modifier.height(2.dp))
+                    }
+                    // 纯图片消息无文本块，跳过文本渲染
+                    if (text.isNotEmpty()) {
                     // user 气泡：给文本选择菜单也挂上「从这里分叉」（SelectionContainer 的内建菜单只有复制，
                     // 通过 LocalTextContextMenu 提供自定义菜单才能看到分叉项）
                     if (isUser && onForkFromHere != null) {
@@ -159,6 +244,7 @@ fun MessageBubble(
                             BubbleText(text = text, streaming = streaming, isUser = isUser, isError = isError, isThinking = isThinking)
                         }
                     }
+                    } // if (text.isNotEmpty())
                 }
             }
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// 聊天页：消息气泡 + WS 流式渲染 + 语音输入。
 struct ChatView: View {
@@ -9,6 +10,8 @@ struct ChatView: View {
 
     @State private var input = ""
     @State private var showSpeechDeniedAlert = false
+    /// PhotosPicker 选中项（onChange 里取 Data 上传，上传成功暂存 vm.pendingImage）
+    @State private var selectedPhoto: PhotosPickerItem?
     @FocusState private var inputFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
@@ -94,6 +97,11 @@ struct ChatView: View {
                 NotificationCenter.default.post(name: .kimiNewSessionRequest, object: nil)
                 dismiss()
             }
+        }
+        .onChange(of: selectedPhoto) { item in
+            guard let item = item else { return }
+            selectedPhoto = nil
+            loadAndAttachPhoto(item)
         }
         .onChange(of: speech.partialText) { text in
             guard speech.isRecording || !text.isEmpty else { return }
@@ -196,7 +204,9 @@ struct ChatView: View {
                         }
                     }
                     ForEach(vm.messages) { msg in
-                        MessageBubble(message: msg, onForkFrom: { vm.forkFrom($0) })
+                        MessageBubble(message: msg,
+                                      imageServer: store.serverURL, imageToken: store.token,
+                                      onForkFrom: { vm.forkFrom($0) })
                             .id(msg.id)
                     }
                 }
@@ -226,7 +236,49 @@ struct ChatView: View {
     // MARK: - 输入栏
 
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: 10) {
+        VStack(spacing: 0) {
+            // 待发送图片：小预览 + 移除按钮（发送图文一起走，见 vm.send）
+            if let pending = vm.pendingImage {
+                HStack {
+                    ZStack(alignment: .topTrailing) {
+                        Image(uiImage: pending.thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 64, height: 64)
+                            .clipped()
+                            .cornerRadius(8)
+                        Button(action: vm.removePendingImage) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.white)
+                                .shadow(radius: 2)
+                        }
+                        .offset(x: 6, y: -6)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+            } else if vm.uploadingImage {
+                HStack(spacing: 6) {
+                    ProgressView().scaleEffect(0.7)
+                    Text("图片上传中…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+            }
+            HStack(alignment: .bottom, spacing: 10) {
+            // 图片附件：PhotosPicker 选图 → 立即上传（POST /api/v1/files）→ 暂存待发
+            PhotosPicker(selection: $selectedPhoto, matching: .images, photoLibrary: .shared()) {
+                Image(systemName: "photo")
+                    .font(.title3)
+                    .foregroundColor(Theme.primary)
+                    .padding(8)
+            }
+            .disabled(vm.uploadingImage)
+
             if voiceEnabled {
                 Button(action: toggleVoice) {
                     Image(systemName: anyRecording ? "mic.fill" : "mic")
@@ -266,10 +318,13 @@ struct ChatView: View {
                     .font(.title2)
                     .foregroundStyle(Theme.userBubbleGradient)
             }
-            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            // 有文字或待发图即可发送（纯图也允许）
+            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                      && vm.pendingImage == nil)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
         .background(.bar)
     }
 
@@ -281,6 +336,26 @@ struct ChatView: View {
         if speech.isRecording { speech.stop() }
         if speechOnnx.isRecording { speechOnnx.stop() }
         vm.send(text)
+    }
+
+    /// PhotosPicker 选中后：取 Data（HEIC 等统一转 JPEG，保证服务端与预览兼容）→ 上传
+    private func loadAndAttachPhoto(_ item: PhotosPickerItem) {
+        Task {
+            do {
+                guard let raw = try await item.loadTransferable(type: Data.self) else {
+                    vm.toast = "无法读取所选图片"
+                    return
+                }
+                if let ui = UIImage(data: raw),
+                   let jpeg = ui.jpegData(compressionQuality: 0.85) {
+                    vm.attachImage(data: jpeg, fileName: "photo.jpg", mimeType: "image/jpeg")
+                } else {
+                    vm.toast = "无法识别该图片"
+                }
+            } catch {
+                vm.toast = "读取图片失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func toggleVoice() {
@@ -321,6 +396,9 @@ struct ChatView: View {
 
 struct MessageBubble: View {
     let message: ChatMessage
+    /// 附件图片拉取用的服务器与 token（GET /api/v1/files/{id} 需 Authorization）
+    var imageServer: String = ""
+    var imageToken: String = ""
     /// user 气泡长按「从这里分叉」回调（fork 全量克隆 + 新会话 undo 分叉点之后的消息）
     var onForkFrom: ((ChatMessage) -> Void)? = nil
 
@@ -357,12 +435,18 @@ struct MessageBubble: View {
         Group {
             if isUser {
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text(message.text)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Theme.userBubbleGradient)
-                        .cornerRadius(16)
+                    // 附件图片（本地回显与历史都可能有；带 Authorization 拉取，见 AuthedImage）
+                    if let fid = message.imageFileId {
+                        AuthedImage(server: imageServer, token: imageToken, fileId: fid)
+                    }
+                    if !message.text.isEmpty {
+                        Text(message.text)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(Theme.userBubbleGradient)
+                            .cornerRadius(16)
+                    }
                     if message.deliveryFailed {
                         // 服务端已丢弃（上游 #3127 兜底）：红色警示，不再显示"排队中"
                         Text("未送达（服务端已丢弃）")
@@ -394,7 +478,13 @@ struct MessageBubble: View {
                     .cornerRadius(16)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    MarkdownContent(text: message.text)
+                    // 附件图片（assistant 消息也可能带 image 块）
+                    if let fid = message.imageFileId {
+                        AuthedImage(server: imageServer, token: imageToken, fileId: fid)
+                    }
+                    if !message.text.isEmpty {
+                        MarkdownContent(text: message.text)
+                    }
                     if message.isStreaming {
                         HStack(spacing: 4) {
                             ProgressView().scaleEffect(0.6)

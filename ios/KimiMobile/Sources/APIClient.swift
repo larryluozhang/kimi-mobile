@@ -61,6 +61,20 @@ enum APIClient {
 
     // MARK: - 业务接口
 
+    /// 拉服务端可用模型列表（GET /api/v1/models）→ data.items[]（provider/model/display_name/max_context_size）
+    static func listModels(server: String, token: String) async throws -> [ModelItem] {
+        let req = try request(server: server, token: token, path: "/api/v1/models")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let d = try unwrap(data, resp)
+        let items = d["items"] as? [[String: Any]] ?? []
+        return items.map { m in
+            ModelItem(provider: m["provider"] as? String ?? "",
+                      model: m["model"] as? String ?? "",
+                      displayName: m["display_name"] as? String ?? "",
+                      maxContextSize: (m["max_context_size"] as? NSNumber)?.intValue ?? 0)
+        }.filter { !$0.model.isEmpty }
+    }
+
     static func listWorkspaces(server: String, token: String) async throws -> [WorkspaceItem] {
         let req = try request(server: server, token: token, path: "/api/v1/workspaces")
         let (data, resp) = try await URLSession.shared.data(for: req)
@@ -147,20 +161,31 @@ enum APIClient {
             guard role == "user" || role == "assistant" else { continue }
             guard let content = m["content"] as? [[String: Any]] else { continue }
             var parts: [String] = []
+            var imageFileId: String? = nil
             for block in content {
+                let type = block["type"] as? String ?? ""
+                if type == "image" {
+                    // 图片块：source.kind=="file" 时提取 file_id（显示需带 Authorization 拉二进制）
+                    if let source = block["source"] as? [String: Any],
+                       let fid = source["file_id"] as? String, !fid.isEmpty {
+                        imageFileId = imageFileId ?? fid
+                    }
+                    continue
+                }
                 // 只渲染 text 块；thinking 等其余块不进入正文
-                guard block["type"] as? String == "text" else { continue }
+                guard type == "text" else { continue }
                 let text = block["text"] as? String ?? ""
                 // 隐藏系统注入的用户消息块（<system-reminder>/<cron-fire>），与官方 web UI 一致
                 if role == "user" && isSystemInjected(text) { continue }
                 if !text.isEmpty { parts.append(text) }
             }
-            // 所有块都被过滤的消息整条不显示
-            guard !parts.isEmpty else { continue }
+            // 所有块都被过滤且无图片的消息整条不显示（纯图消息仍显示）
+            guard !parts.isEmpty || imageFileId != nil else { continue }
             out.append(ChatMessage(id: m["id"] as? String ?? UUID().uuidString,
                                    role: role,
                                    text: parts.joined(separator: "\n"),
-                                   createdAt: parseISO(m["created_at"] as? String ?? "")))
+                                   createdAt: parseISO(m["created_at"] as? String ?? ""),
+                                   imageFileId: imageFileId))
         }
         return MessagesPage(messages: out, oldestId: oldestId, oldestDate: oldestDate,
                             hasMore: items.count >= 100)
@@ -213,13 +238,24 @@ enum APIClient {
     /// 发送 prompt；返回 data.status（"running" | "queued"）。
     /// 会话 busy 时服务端排队（status="queued"），该消息在轮到执行前不会出现在 GET /messages 历史里，
     /// 调用方需保留本地乐观回显直到历史刷新确认。
+    /// imageFileId 非空时 content 为图文混排：image 块（source.kind=file）在前、text 块在后；
+    /// text 为空时只发 image 块。
     static func sendPrompt(server: String, token: String, sessionId: String,
                            text: String, model: String,
+                           imageFileId: String? = nil,
                            modeFields: [String: Any] = [:]) async throws -> String {
         // body 顶层必须带 model 字段；模式字段（plan_mode/swarm_mode/permission_mode/
         // thinking/goal_objective）顶层随带以驱动 turn 行为（官方 web UI 同款机制）
+        var content: [[String: Any]] = []
+        if let imageFileId = imageFileId, !imageFileId.isEmpty {
+            content.append(["type": "image",
+                            "source": ["kind": "file", "file_id": imageFileId]])
+        }
+        if !text.isEmpty {
+            content.append(["type": "text", "text": text])
+        }
         var body: [String: Any] = [
-            "content": [["type": "text", "text": text]],
+            "content": content,
             "model": model
         ]
         for (k, v) in modeFields { body[k] = v }
@@ -229,6 +265,50 @@ enum APIClient {
         let (data, resp) = try await URLSession.shared.data(for: req)
         let d = try unwrap(data, resp)
         return d["status"] as? String ?? "running"
+    }
+
+    // MARK: - 文件（图片附件）
+
+    /// 上传文件（POST /api/v1/files，multipart 字段 file）→ data.id。
+    /// 手写 multipart body（单字段，无需第三方库）。
+    static func uploadFile(server: String, token: String,
+                           data: Data, fileName: String, mimeType: String) async throws -> String {
+        guard let url = URL(string: server + "/api/v1/files") else {
+            throw APIError(httpCode: 0, message: "服务器地址无效：\(server)")
+        }
+        let boundary = "KimiMobile-\(UUID().uuidString)"
+        var req = URLRequest(url: url, timeoutInterval: 60)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.appendUTF8("--\(boundary)\r\n")
+        body.appendUTF8("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n")
+        body.appendUTF8("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(data)
+        body.appendUTF8("\r\n--\(boundary)--\r\n")
+        req.httpBody = body
+        let (respData, resp) = try await URLSession.shared.data(for: req)
+        let d = try unwrap(respData, resp)
+        guard let id = d["id"] as? String, !id.isEmpty else {
+            throw APIError(httpCode: 200, message: "上传成功但响应缺少文件 id")
+        }
+        return id
+    }
+
+    /// 拉文件二进制（GET /api/v1/files/{file_id}，带 Authorization Bearer）→ 原始 Data。
+    /// AsyncImage 无法带请求头，气泡图片统一走这里 + 内存缓存（见 RemoteImage.swift）。
+    static func fetchFile(server: String, token: String, fileId: String) async throws -> Data {
+        let req = try request(server: server, token: token, path: "/api/v1/files/\(fileId)")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        if code == 401 || code == 403 {
+            throw APIError(httpCode: code, message: "Token 无效或已过期（HTTP \(code)）")
+        }
+        guard code == 200 else {
+            throw APIError(httpCode: code, message: "HTTP \(code)：拉取文件失败")
+        }
+        return data
     }
 
     // MARK: - 审批 / 问答 / 中断
@@ -379,5 +459,11 @@ enum APIClient {
         if let d = f.date(from: s) { return d }
         f.formatOptions = [.withInternetDateTime]
         return f.date(from: s)
+    }
+}
+
+private extension Data {
+    mutating func appendUTF8(_ s: String) {
+        append(s.data(using: .utf8) ?? Data())
     }
 }

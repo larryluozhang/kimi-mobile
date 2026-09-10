@@ -23,7 +23,9 @@ data class HistoryMessage(
     val id: String,
     val role: String,
     val text: String,
-    val createdAt: String = ""
+    val createdAt: String = "",
+    /** content 中 type=image 块提取的 file_id 列表（显示用 GET /api/v1/files/{file_id} 拉回） */
+    val imageFileIds: List<String> = emptyList()
 )
 
 /** 与 Android 版 Api.kt 相同的接口与协议；传输层换成本机可用的 MiniHttp（NIO） */
@@ -127,6 +129,35 @@ object Api {
         )
     }
 
+    /** 服务端可用模型（GET /api/v1/models，data.items[]）；model 为下发值，displayName 仅用于展示 */
+    data class ModelItem(
+        val provider: String,
+        val model: String,
+        val displayName: String,
+        val maxContextSize: Long
+    )
+
+    /** 拉取服务端模型列表；失败抛异常由调用方回退内置预设 */
+    fun listModels(server: String, token: String): List<ModelItem> {
+        val data = getData(server, token, "/api/v1/models")
+        val items = data.optJSONArray("items") ?: JSONArray()
+        val out = ArrayList<ModelItem>()
+        for (i in 0 until items.length()) {
+            val m = items.optJSONObject(i) ?: continue
+            val model = m.optString("model", "")
+            if (model.isEmpty()) continue
+            out.add(
+                ModelItem(
+                    provider = m.optString("provider", ""),
+                    model = model,
+                    displayName = m.optString("display_name", "").ifEmpty { model },
+                    maxContextSize = m.optLong("max_context_size", -1)
+                )
+            )
+        }
+        return out
+    }
+
     /** 会话模式档（对应 agent_config） */
     data class SessionProfile(
         val model: String,
@@ -181,18 +212,26 @@ object Api {
             if (role != "user" && role != "assistant") continue
             val content = m.optJSONArray("content") ?: continue
             val sb = StringBuilder()
+            val imageFileIds = ArrayList<String>()
             for (j in 0 until content.length()) {
                 val block = content.optJSONObject(j) ?: continue
-                if (block.optString("type") == "text") {
-                    val text = block.optString("text", "")
-                    // 幻影消息：系统注入的 user 文本块整条隐藏
-                    if (isPhantomUserText(role, text)) continue
-                    if (sb.isNotEmpty()) sb.append('\n')
-                    sb.append(text)
+                when (block.optString("type")) {
+                    "text" -> {
+                        val text = block.optString("text", "")
+                        // 幻影消息：系统注入的 user 文本块整条隐藏
+                        if (isPhantomUserText(role, text)) continue
+                        if (sb.isNotEmpty()) sb.append('\n')
+                        sb.append(text)
+                    }
+                    // 图片块：{"type":"image","source":{"kind":"file","file_id":"..."}}，提取 file_id 供气泡拉回显示
+                    "image" -> {
+                        val fid = block.optJSONObject("source")?.optString("file_id", "") ?: ""
+                        if (fid.isNotEmpty()) imageFileIds.add(fid)
+                    }
                 }
             }
-            if (sb.isNotEmpty()) {
-                out.add(HistoryMessage(m.optString("id"), role, sb.toString(), m.optString("created_at", "")))
+            if (sb.isNotEmpty() || imageFileIds.isNotEmpty()) {
+                out.add(HistoryMessage(m.optString("id"), role, sb.toString(), m.optString("created_at", ""), imageFileIds))
             }
         }
         // API 返回最新在前，反转为时间正序（最旧在上）再渲染
@@ -241,10 +280,18 @@ object Api {
     }
 
     /** 返回 data.status：running / queued（会话 busy 时消息排队，不立即进入历史） */
-    fun sendPrompt(server: String, token: String, sessionId: String, text: String, model: String, modes: SessionProfile? = null): String {
-        val content = JSONArray().put(
-            JSONObject().put("type", "text").put("text", text)
-        )
+    fun sendPrompt(server: String, token: String, sessionId: String, text: String, model: String, modes: SessionProfile? = null, imageFileId: String? = null): String {
+        val content = JSONArray()
+        // 图文混排：图片块在前（先经 uploadFile 拿到 file_id），text 块在后
+        if (!imageFileId.isNullOrEmpty()) {
+            content.put(
+                JSONObject().put("type", "image")
+                    .put("source", JSONObject().put("kind", "file").put("file_id", imageFileId))
+            )
+        }
+        if (text.isNotEmpty()) {
+            content.put(JSONObject().put("type", "text").put("text", text))
+        }
         val payload = JSONObject()
             .put("content", content)
             // 服务端要求顶层必须带 model，否则报 Model not set；模式栏有会话级模型时优先
@@ -257,6 +304,42 @@ object Api {
         }
         val data = postData(server, token, "/api/v1/sessions/$sessionId/prompts", payload)
         return data.optString("status", "running")
+    }
+
+    /**
+     * 上传文件：POST /api/v1/files（multipart/form-data，字段 file），返回 data.id（file_id）。
+     * multipart 请求体按 MiniHttp 风格手写构造（无 OkHttp 可用）。
+     */
+    fun uploadFile(server: String, token: String, fileName: String, bytes: ByteArray, mimeType: String): String {
+        val boundary = "----KimiDesktop" + java.util.UUID.randomUUID().toString().replace("-", "")
+        // multipart 头是 ASCII/UTF-8 文本，文件字节原样拼接
+        val head = (
+            "--$boundary\r\n" +
+                "Content-Disposition: form-data; name=\"file\"; filename=\"$fileName\"\r\n" +
+                "Content-Type: $mimeType\r\n\r\n"
+            ).toByteArray(java.nio.charset.StandardCharsets.UTF_8)
+        val tail = "\r\n--$boundary--\r\n".toByteArray(java.nio.charset.StandardCharsets.US_ASCII)
+        val body = ByteArray(head.size + bytes.size + tail.size)
+        System.arraycopy(head, 0, body, 0, head.size)
+        System.arraycopy(bytes, 0, body, head.size, bytes.size)
+        System.arraycopy(tail, 0, body, head.size + bytes.size, tail.size)
+        val resp = MiniHttp.postBytes(
+            "$server/api/v1/files",
+            mapOf("Authorization" to "Bearer $token"),
+            "multipart/form-data; boundary=$boundary",
+            body,
+            timeoutMs = 60_000
+        )
+        val data = checkAuth(resp.code, resp.body)
+        return data.optString("id", "")
+    }
+
+    /** 拉回文件二进制（图片显示用）：GET /api/v1/files/{file_id}，带 Bearer；非 200 抛 ApiException */
+    fun downloadFile(server: String, token: String, fileId: String): ByteArray {
+        val resp = MiniHttp.getBytes("$server/api/v1/files/$fileId", mapOf("Authorization" to "Bearer $token"), timeoutMs = 60_000)
+        if (resp.code == 401 || resp.code == 403) throw ApiException(resp.code, "Token 无效或已过期（HTTP ${resp.code}）")
+        if (resp.code != 200) throw ApiException(resp.code, "HTTP ${resp.code}: 下载文件失败")
+        return resp.body
     }
 
     /** 中断当前会话正在运行的 turn（实测返回 {"aborted":true}） */

@@ -26,6 +26,17 @@
         android:layout_weight="1"
         android:orientation="vertical">
 
+        <ImageView
+            android:id="@+id/ivImage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:adjustViewBounds="true"
+            android:maxWidth="240dp"
+            android:maxHeight="240dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/tvMessage"
             android:layout_width="wrap_content"

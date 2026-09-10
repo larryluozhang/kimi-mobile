@@ -47,6 +47,24 @@ val PERMISSION_OPTIONS = listOf("manual", "auto", "yolo")
 
 private fun modelLabel(m: String) = m.removePrefix("kimi-code/")
 
+/** 模型 id 的展示名：服务端列表里有的用 display_name，否则退化为去前缀短名 */
+fun modelDisplayName(state: AppState, modelId: String): String =
+    state.modelItems.firstOrNull { it.model == modelId }?.displayName ?: modelLabel(modelId)
+
+/** 拉取服务端模型列表进 state.modelItems；失败或为空保持空，UI 回退内置预设 */
+suspend fun loadModelList(state: AppState) {
+    try {
+        val list = withContext(Dispatchers.IO) { Api.listModels(state.server(), state.token()) }
+        if (list.isNotEmpty()) {
+            state.modelItems.clear()
+            state.modelItems.addAll(list)
+            AppLog.log("MODELS", "模型列表已加载 ${list.size} 个")
+        }
+    } catch (e: Throwable) {
+        AppLog.error("MODELS", "模型列表拉取失败，回退内置预设", e)
+    }
+}
+
 private fun permissionLabel(p: String) = when (p) {
     "manual" -> "手动"
     "auto" -> "自动"
@@ -143,22 +161,36 @@ fun ModeBar(state: AppState, scope: CoroutineScope, sessionId: String) {
                 }
             }
 
-            // 模型
+            // 模型（服务端动态列表；拉取失败/为空时回退内置预设）
             Box {
                 OutlinedButton(onClick = { modelMenu = true }) {
-                    Text(modelLabel(profile.model.ifEmpty { state.model }), fontSize = 12.sp)
+                    Text(modelDisplayName(state, profile.model.ifEmpty { state.model }), fontSize = 12.sp)
                 }
                 DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
-                    for (m in MODEL_OPTIONS) {
-                        DropdownMenuItem(
-                            text = { Text(m, fontSize = 13.sp) },
-                            onClick = {
-                                modelMenu = false
-                                if (m != profile.model) {
-                                    patchProfile(state, scope, sessionId, JSONObject().put("model", m), profile.copy(model = m))
+                    if (state.modelItems.isNotEmpty()) {
+                        for (item in state.modelItems) {
+                            DropdownMenuItem(
+                                text = { Text(item.displayName, fontSize = 13.sp) },
+                                onClick = {
+                                    modelMenu = false
+                                    if (item.model != profile.model) {
+                                        patchProfile(state, scope, sessionId, JSONObject().put("model", item.model), profile.copy(model = item.model))
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
+                    } else {
+                        for (m in MODEL_OPTIONS) {
+                            DropdownMenuItem(
+                                text = { Text(m, fontSize = 13.sp) },
+                                onClick = {
+                                    modelMenu = false
+                                    if (m != profile.model) {
+                                        patchProfile(state, scope, sessionId, JSONObject().put("model", m), profile.copy(model = m))
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }

@@ -5,12 +5,14 @@ import android.os.Bundle
 import android.speech.SpeechRecognizer
 import android.view.Gravity
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -20,7 +22,7 @@ import java.util.UUID
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var profileList: LinearLayout
-    private lateinit var etModel: EditText
+    private lateinit var spinnerModel: Spinner
     private lateinit var cbVoice: CheckBox
     private lateinit var tvVoiceHint: TextView
     private lateinit var rgVoiceEngine: RadioGroup
@@ -30,12 +32,16 @@ class SettingsActivity : AppCompatActivity() {
 
     @Volatile private var modelDownloading = false
 
+    /** 全局模型 Spinner 选项值（完整 model id）与展示名（服务端 display_name；预置去 provider 前缀） */
+    private var modelChoices: List<String> = Api.MODEL_PRESETS
+    private var modelLabels: List<String> = Api.MODEL_PRESETS.map { it.removePrefix("kimi-code/") }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
         profileList = findViewById(R.id.profileList)
-        etModel = findViewById(R.id.etModel)
+        spinnerModel = findViewById(R.id.spinnerModel)
         cbVoice = findViewById(R.id.cbVoice)
         tvVoiceHint = findViewById(R.id.tvVoiceHint)
         rgVoiceEngine = findViewById(R.id.rgVoiceEngine)
@@ -48,7 +54,8 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
 
-        etModel.setText(Prefs.model(this))
+        refreshModelChoices()
+        loadModels()
         cbVoice.isChecked = Prefs.voiceEnabled(this)
 
         val onnxReady = SpeechOnnx.isModelAvailable(this)
@@ -75,7 +82,10 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btnSave).setOnClickListener {
-            Prefs.setModel(this, etModel.text.toString())
+            Prefs.setModel(
+                this,
+                modelChoices.getOrNull(spinnerModel.selectedItemPosition) ?: Prefs.DEFAULT_MODEL
+            )
             Prefs.setVoiceEnabled(this, cbVoice.isChecked)
             Prefs.setVoiceEngine(
                 this,
@@ -145,8 +155,39 @@ class SettingsActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun renderProfiles() {
-        profileList.removeAllViews()
+    /** 重建全局模型下拉：当前已存模型不在列表时追加保留（服务端已删/自定义值） */
+    private fun refreshModelChoices() {
+        val current = Prefs.model(this)
+        if (current.isNotEmpty() && current !in modelChoices) {
+            modelChoices = modelChoices + current
+            modelLabels = modelLabels + current
+        }
+        spinnerModel.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            modelLabels
+        )
+        spinnerModel.setSelection(modelChoices.indexOf(current).coerceAtLeast(0))
+    }
+
+    /** 拉取服务端模型列表填充全局模型下拉（display_name 展示，model id 为值）；失败/为空静默回退预置 */
+    private fun loadModels() {
+        Thread {
+            try {
+                val models = Api.listModels(Prefs.serverUrl(this), Prefs.token(this))
+                if (models.isEmpty()) return@Thread
+                runOnUiThread {
+                    modelChoices = models.map { it.model }
+                    modelLabels = models.map { it.displayName }
+                    refreshModelChoices()
+                }
+            } catch (e: Exception) {
+                // 旧服务端无此接口/网络抖动：静默回退预置
+            }
+        }.start()
+    }
+
+    private fun renderProfiles() {        profileList.removeAllViews()
         val active = Prefs.activeProfile(this)
         for (p in Prefs.profiles(this)) {
             profileList.addView(profileRow(p, active?.id == p.id))

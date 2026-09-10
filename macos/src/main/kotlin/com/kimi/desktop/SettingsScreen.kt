@@ -2,6 +2,7 @@ package com.kimi.desktop
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,11 +10,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -23,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,7 +43,10 @@ import java.util.UUID
 fun SettingsScreen(state: AppState) {
     var editing by remember { mutableStateOf<HostProfile?>(null) }
     var showEditor by remember { mutableStateOf(false) }
-    var modelText by remember(state.settingsOpen) { mutableStateOf(state.model) }
+    var modelMenu by remember { mutableStateOf(false) }
+
+    // 打开设置页时拉取服务端模型列表（失败/为空回退内置预设）
+    LaunchedEffect(Unit) { loadModelList(state) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -110,20 +116,39 @@ fun SettingsScreen(state: AppState) {
             Text("模型", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = modelText,
-                    onValueChange = { modelText = it },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = {
-                    Prefs.setModel(modelText)
-                    state.reloadPrefs()
-                }) { Text("保存") }
+                Box {
+                    OutlinedButton(onClick = { modelMenu = true }) {
+                        Text(modelDisplayName(state, state.model), fontSize = 13.sp)
+                    }
+                    DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                        if (state.modelItems.isNotEmpty()) {
+                            for (item in state.modelItems) {
+                                DropdownMenuItem(
+                                    text = { Text(item.displayName, fontSize = 13.sp) },
+                                    onClick = {
+                                        modelMenu = false
+                                        Prefs.setModel(item.model)
+                                        state.reloadPrefs()
+                                    }
+                                )
+                            }
+                        } else {
+                            for (m in MODEL_OPTIONS) {
+                                DropdownMenuItem(
+                                    text = { Text(m, fontSize = 13.sp) },
+                                    onClick = {
+                                        modelMenu = false
+                                        Prefs.setModel(m)
+                                        state.reloadPrefs()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
             Text(
-                "默认 ${Prefs.DEFAULT_MODEL}；发送消息时作为请求体顶层 model 字段",
+                "默认 ${Prefs.DEFAULT_MODEL}；发送消息时作为请求体顶层 model 字段（会话模式栏另选则以会话为准）",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

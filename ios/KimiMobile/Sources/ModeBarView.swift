@@ -121,8 +121,8 @@ struct ModeBarView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Picker("模型", selection: modelBinding) {
-                    ForEach(Constants.availableModels, id: \.self) { m in
-                        Text(m.components(separatedBy: "/").last ?? m).tag(m)
+                    ForEach(modelOptions, id: \.id) { opt in
+                        Text(opt.label).tag(opt.id)
                     }
                 }
                 .pickerStyle(.menu)
@@ -195,6 +195,33 @@ struct ModeBarView: View {
         }, set: { m in
             vm.updateProfile(fields: ["model": m]) { $0.model = m }
         })
+    }
+
+    /// 模型选项：服务端动态列表（display_name 优先，标注上下文上限）；
+    /// 拉取失败/为空回退 Constants.availableModels 预设；
+    /// 当前选中模型不在列表时补进去，避免 Picker 选中态落空
+    private var modelOptions: [(id: String, label: String)] {
+        var opts: [(id: String, label: String)]
+        if vm.serverModels.isEmpty {
+            opts = Constants.availableModels.map { m in
+                (id: m, label: m.components(separatedBy: "/").last ?? m)
+            }
+        } else {
+            opts = vm.serverModels.map { item in
+                var label = item.displayName.isEmpty
+                    ? (item.id.components(separatedBy: "/").last ?? item.id)
+                    : item.displayName
+                if item.maxContextSize > 0 {
+                    label += "（上下文 \(item.maxContextSize / 1024)k）"
+                }
+                return (id: item.id, label: label)
+            }
+        }
+        let current = modelBinding.wrappedValue
+        if !current.isEmpty && !opts.contains(where: { $0.id == current }) {
+            opts.append((id: current, label: current.components(separatedBy: "/").last ?? current))
+        }
+        return opts
     }
 
     private func setGoal() {

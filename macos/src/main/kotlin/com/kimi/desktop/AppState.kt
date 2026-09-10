@@ -14,7 +14,11 @@ data class ChatMessage(
     val queued: Boolean = false, // user 气泡：服务端排队中标记
     val executing: Boolean = false, // user 气泡：服务端正在执行（data.active，v0.37.2 起不在 queued[] 里）
     val undelivered: Boolean = false, // user 气泡：服务端已丢弃（幻影 busy 时排队 prompt 被静默丢弃，上游 #3127）
-    val timeMillis: Long = 0 // 排序用；0=未知（排到最后）
+    val timeMillis: Long = 0, // 排序用；0=未知（排到最后）
+    /** 服务端历史消息中 image 块的 file_id 列表（气泡据此 GET /files/{id} 拉回显示） */
+    val imageFileIds: List<String> = emptyList(),
+    /** 本地回显的待发图片字节（发送后未上历史前直接显示本地图，不必回拉） */
+    val localImageBytes: ByteArray? = null
 )
 
 /** ISO 时间戳（带偏移或 Z）转毫秒；失败返回 0 */
@@ -45,7 +49,11 @@ data class PendingEcho(
     val queued: Boolean,
     val createdAt: Long = System.currentTimeMillis(),
     val executing: Boolean = false, // 服务端正在执行（data.active 匹配）
-    val undelivered: Boolean = false // 超 60s 既不在历史也不在队列 → 服务端已丢弃
+    val undelivered: Boolean = false, // 超 60s 既不在历史也不在队列 → 服务端已丢弃
+    /** 随本条 prompt 发送的图片 file_id（先经 uploadFile 上传）；历史确认时与 image 块 file_id 一并匹配 */
+    val imageFileIds: List<String> = emptyList(),
+    /** 待发图片本地字节（回显气泡直接显示，历史确认后由服务端 file_id 回拉替代） */
+    val localImageBytes: ByteArray? = null
 )
 
 class AppState {
@@ -99,6 +107,9 @@ class AppState {
     var sessionProfile by mutableStateOf<Api.SessionProfile?>(null)
     var profileLoading by mutableStateOf(false)
 
+    /** 服务端模型列表（GET /api/v1/models）；空=未加载或拉取失败，UI 回退内置预设 */
+    var modelItems = mutableStateListOf<Api.ModelItem>()
+
     fun server() = Prefs.serverUrl()
     fun token() = Prefs.token()
 
@@ -143,9 +154,11 @@ class AppState {
         // 无条件堆在列表末尾导致的对话顺序错乱
         // 分页加载的更早历史保留在头部（时间戳更早，排序后自然在最前；按 id 去重防页边界重叠）
         val out = ArrayList((olderHistory + history).distinctBy { it.id })
-        // 历史已确认 → 移除（仅限本会话回显）
+        // 历史已确认 → 移除（仅限本会话回显）；带图回显要求 file_id 列表也一致，避免空文本图文消息被纯文本历史误确认
         pendingEchoes.removeAll { p ->
-            p.sessionId == sessionId && history.any { it.role == "user" && sameText(it.text, p.text) }
+            p.sessionId == sessionId && history.any {
+                it.role == "user" && sameText(it.text, p.text) && it.imageFileIds == p.imageFileIds
+            }
         }
         // 队列确认 → 更新 queued 标记（本地回显与队列条目同文本时只显示这一份）；
         // active 匹配 → 标记执行中（替代排队中）；active 中的消息绝不标未送达；
@@ -164,7 +177,7 @@ class AppState {
             }
         }
         for (p in pendingEchoes.filter { it.sessionId == sessionId }) {
-            out.add(ChatMessage(p.id, "user", p.text, queued = p.queued, executing = p.executing, undelivered = p.undelivered, timeMillis = p.createdAt))
+            out.add(ChatMessage(p.id, "user", p.text, queued = p.queued, executing = p.executing, undelivered = p.undelivered, timeMillis = p.createdAt, imageFileIds = p.imageFileIds, localImageBytes = p.localImageBytes))
         }
         // active 里有、历史与本地回显都没有的条目（其他端提交的执行中 prompt）→ 执行中气泡
         if (activePrompt != null) {

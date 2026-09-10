@@ -102,18 +102,12 @@
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
-                <EditText
-                    android:id="@+id/etModel"
+                <Spinner
+                    android:id="@+id/spinnerModel"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:background="@drawable/bg_field"
-                    android:hint="kimi-code/k3"
-                    android:importantForAutofill="no"
-                    android:inputType="text"
-                    android:textColor="@color/text_primary"
-                    android:textColorHint="@color/text_secondary"
-                    android:textSize="15sp" />
+                    android:background="@drawable/bg_field" />
 
                 <CheckBox
                     android:id="@+id/cbVoice"

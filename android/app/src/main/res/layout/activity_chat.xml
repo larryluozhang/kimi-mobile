@@ -335,7 +335,7 @@
         android:paddingEnd="12dp"
         android:paddingBottom="64dp" />
 
-    <!-- 输入栏：悬浮胶囊卡片 -->
+    <!-- 输入栏：悬浮胶囊卡片（待发图片预览条 + 输入行） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -343,41 +343,95 @@
         android:layout_marginEnd="12dp"
         android:layout_marginBottom="12dp"
         android:background="@drawable/bg_input_bar"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:orientation="vertical">
 
-        <ImageButton
-            android:id="@+id/btnMic"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="语音输入"
-            android:src="@android:drawable/ic_btn_speak_now"
-            android:tint="@color/primary" />
-
-        <EditText
-            android:id="@+id/etInput"
-            android:layout_width="0dp"
+        <!-- 待发图片预览条：选中图片后显示（缩略图 + 上传状态 + 移除），发送/移除后隐藏 -->
+        <LinearLayout
+            android:id="@+id/imagePreviewBar"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="8dp"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:hint="输入消息…"
-            android:importantForAutofill="no"
-            android:inputType="textCapSentences|textMultiLine"
-            android:lineSpacingMultiplier="1.25"
-            android:maxLines="4"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
             android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_secondary"
-            android:textSize="15sp" />
+            android:paddingEnd="4dp"
+            android:visibility="gone">
 
-        <Button
-            android:id="@+id/btnSend"
-            android:layout_width="wrap_content"
+            <ImageView
+                android:id="@+id/ivImagePreview"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:scaleType="centerCrop" />
+
+            <TextView
+                android:id="@+id/tvImageState"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="上传中…"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnRemoveImage"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="移除"
+                android:textColor="@color/error"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="发送" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btnPick"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="发送图片"
+                android:src="@android:drawable/ic_menu_gallery"
+                android:tint="@color/primary" />
+
+            <ImageButton
+                android:id="@+id/btnMic"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="语音输入"
+                android:src="@android:drawable/ic_btn_speak_now"
+                android:tint="@color/primary" />
+
+            <EditText
+                android:id="@+id/etInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:hint="输入消息…"
+                android:importantForAutofill="no"
+                android:inputType="textCapSentences|textMultiLine"
+                android:lineSpacingMultiplier="1.25"
+                android:maxLines="4"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_secondary"
+                android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnSend"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="发送" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

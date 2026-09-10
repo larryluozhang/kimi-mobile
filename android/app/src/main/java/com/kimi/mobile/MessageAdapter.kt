@@ -3,6 +3,8 @@ package com.kimi.mobile
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
@@ -12,6 +14,7 @@ import android.text.style.TypefaceSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
@@ -29,7 +32,8 @@ data class ChatMsg(
     var queued: Boolean = false, // 服务端排队中（busy 时 queued 的 prompt 暂不进历史）
     var active: Boolean = false, // 执行中：data.active 的 prompt（v0.37.2，正在执行而非排队）
     var undelivered: Boolean = false, // 未送达：既不在历史也不在服务端队列且超 60s，视为已被服务端丢弃
-    var timeMillis: Long = 0L
+    var timeMillis: Long = 0L,
+    var imageFileId: String = "" // 图片块 file_id（""=无图）；二进制经 Api.fetchFile 拉回显示
 )
 
 class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
@@ -42,6 +46,13 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
     }
 
     val items = ArrayList<ChatMsg>()
+
+    /** 图片块加载所需的服务端地址/令牌（ChatActivity 注入；为空则图片不加载，只显示占位） */
+    var serverUrl: String = ""
+    var authToken: String = ""
+
+    /** file_id -> Bitmap 简易内存缓存（主线程读写，解码在子线程） */
+    private val imageCache = HashMap<String, Bitmap>()
 
     /** user 气泡长按菜单「从这里分叉」回调（由 ChatActivity 注入，fork+undo 流程） */
     var onForkFrom: ((ChatMsg) -> Unit)? = null
@@ -87,6 +98,8 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
     class VH(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(R.id.tvMessage)
         val time: TextView = view.findViewById(R.id.tvTime)
+        // tool 布局无图片视图，可能为 null
+        val image: ImageView? = view.findViewById(R.id.ivImage)
     }
 
     override fun getItemViewType(position: Int): Int =
@@ -113,6 +126,9 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
         val ctx = holder.itemView.context
         val display = if (m.streaming && m.text.isEmpty()) "…" else m.text
         holder.text.text = decorateCode(ctx, display)
+        // 纯图片消息（text 为空）隐藏文本气泡，避免空气泡占位
+        holder.text.visibility = if (display.isEmpty() && m.imageFileId.isNotEmpty()) View.GONE else View.VISIBLE
+        bindImage(holder, m)
         val color = when {
             m.isError || m.undelivered -> ctx.getColor(R.color.error)
             m.role == "user" -> ctx.getColor(R.color.on_primary)
@@ -146,10 +162,10 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
         } else {
             holder.time.visibility = View.GONE
         }
-        holder.text.setOnLongClickListener {
+        val longClick = View.OnLongClickListener { anchor ->
             if (m.role == "user" && onForkFrom != null) {
                 // user 气泡：弹菜单（复制 / 从这里分叉）
-                PopupMenu(ctx, holder.text).apply {
+                PopupMenu(ctx, anchor).apply {
                     menu.add(0, 1, 0, "复制")
                     menu.add(0, 2, 1, "从这里分叉")
                     setOnMenuItemClickListener { item ->
@@ -165,6 +181,58 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
                 copyText(ctx, m.text)
             }
             true
+        }
+        holder.text.setOnLongClickListener(longClick)
+        // 纯图片消息文本气泡已隐藏，长按入口挂到图片上
+        holder.image?.setOnLongClickListener(longClick)
+    }
+
+    /** 图片块绑定：缓存命中直接显示；否则子线程 GET /api/v1/files/{id} 拉回解码，tag 防回收错位 */
+    private fun bindImage(holder: VH, m: ChatMsg) {
+        val iv = holder.image ?: return
+        if (m.imageFileId.isEmpty()) {
+            iv.tag = null
+            iv.setImageDrawable(null)
+            iv.visibility = View.GONE
+            return
+        }
+        iv.visibility = View.VISIBLE
+        iv.tag = m.imageFileId
+        val cached = imageCache[m.imageFileId]
+        if (cached != null) {
+            iv.setImageBitmap(cached)
+            return
+        }
+        iv.setImageDrawable(null)
+        val fid = m.imageFileId
+        val activity = holder.itemView.context as? android.app.Activity
+        Thread {
+            val bmp = loadImage(fid)
+            if (bmp != null) {
+                val post: () -> Unit = {
+                    imageCache[fid] = bmp
+                    if (iv.tag == fid) iv.setImageBitmap(bmp)
+                }
+                if (activity != null) activity.runOnUiThread(post) else iv.post(post)
+            }
+        }.start()
+    }
+
+    /** 子线程拉取并解码图片（降采样到长边 ~1280px 以内），失败返回 null（气泡仅留空图位） */
+    private fun loadImage(fileId: String): Bitmap? {
+        if (serverUrl.isEmpty() || authToken.isEmpty()) return null
+        return try {
+            val bytes = Api.fetchFile(serverUrl, authToken, fileId)
+            if (bytes.isEmpty()) return null
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            var sample = 1
+            val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+            while (maxDim / (sample * 2) > 1280) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        } catch (e: Exception) {
+            null
         }
     }
 
