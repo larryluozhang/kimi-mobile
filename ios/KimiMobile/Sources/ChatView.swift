@@ -10,6 +10,8 @@ struct ChatView: View {
 
     @State private var input = ""
     @State private var showSpeechDeniedAlert = false
+    /// 视口是否停在底部附近（末条气泡可见即视为在底部）；轮询/流式刷新只在底部时才跟随滚动，不在底部不打断阅读
+    @State private var isAtBottom = true
     /// PhotosPicker 选中项（onChange 里取 Data 上传，上传成功暂存 vm.pendingImage）
     @State private var selectedPhoto: PhotosPickerItem?
     @FocusState private var inputFocused: Bool
@@ -208,20 +210,26 @@ struct ChatView: View {
                                       imageServer: store.serverURL, imageToken: store.token,
                                       onForkFrom: { vm.forkFrom($0) })
                             .id(msg.id)
+                            // LazyVStack 可见性跟踪：末条气泡进出视口时更新 isAtBottom
+                            .onAppear { if msg.id == vm.messages.last?.id { isAtBottom = true } }
+                            .onDisappear { if msg.id == vm.messages.last?.id { isAtBottom = false } }
                     }
                 }
                 .padding()
             }
             .onChange(of: vm.messages.count) { _ in
-                // 前插加载更早消息时滚回锚点（原首条），其余情况照旧滚到底部
+                // 前插加载更早消息时滚回锚点（原首条），与底部跟随互斥，优先级最高
                 if let anchor = vm.scrollAnchorAfterPrepend {
                     vm.scrollAnchorAfterPrepend = nil
                     proxy.scrollTo(anchor, anchor: .top)
-                } else {
+                } else if isAtBottom {
+                    // 仅当用户在底部时才跟随新内容；阅读历史时不拽回底部
                     scrollToBottom(proxy)
                 }
             }
-            .onChange(of: vm.messages.last?.text) { _ in scrollToBottom(proxy) }
+            .onChange(of: vm.messages.last?.text) { _ in
+                if isAtBottom { scrollToBottom(proxy) }
+            }
             .onTapGesture { inputFocused = false }
         }
     }
@@ -335,6 +343,8 @@ struct ChatView: View {
         input = ""
         if speech.isRecording { speech.stop() }
         if speechOnnx.isRecording { speechOnnx.stop() }
+        // 自己发消息视为回到底部的明确意图（随后 count onChange 会跟随滚动）
+        isAtBottom = true
         vm.send(text)
     }
 

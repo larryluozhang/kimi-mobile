@@ -337,6 +337,7 @@
 
     <!-- 输入栏：悬浮胶囊卡片（待发图片预览条 + 输入行） -->
     <LinearLayout
+        android:id="@+id/inputBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"

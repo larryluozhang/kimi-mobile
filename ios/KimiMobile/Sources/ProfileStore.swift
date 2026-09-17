@@ -40,9 +40,9 @@ final class ProfileStore: ObservableObject {
     }
 
     static let presets: [HostProfile] = [
-        HostProfile(id: "preset-146", name: "我的服务器", url: "http://127.0.0.1:58627"),
+        HostProfile(id: "preset-server", name: "我的服务器", url: "http://127.0.0.1:58627"),
         HostProfile(id: "preset-mac", name: "我的 Mac", url: "http://127.0.0.1:58627"),
-        HostProfile(id: "preset-beelink", name: "备用主机", url: "http://127.0.0.1:58627")
+        HostProfile(id: "preset-backup", name: "备用主机", url: "http://127.0.0.1:58627")
     ]
 
     init() {

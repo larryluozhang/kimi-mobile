@@ -618,10 +618,13 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
         }
     }
 
-    // 新内容自动滚到底
+    // 新内容自动滚到底：仅当用户本就在底部附近时才跟随，避免轮询刷新把阅读位置顶掉
     val itemCount = state.messages.size + state.frames.size
     LaunchedEffect(itemCount, state.frames.lastOrNull()?.text) {
-        if (itemCount > 0) listState.animateScrollToItem(itemCount - 1)
+        if (itemCount <= 0) return@LaunchedEffect
+        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
+        // 在底部附近（允许 1 条容差）才滚到底；否则 LazyColumn 按 key 保持位置，无需干预
+        if (lastVisible >= itemCount - 2) listState.animateScrollToItem(itemCount - 1)
     }
 
     Column(modifier = modifier.background(MaterialTheme.colorScheme.background)) {

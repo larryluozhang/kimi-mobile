@@ -67,7 +67,7 @@ compose.desktop {
             macOS {
                 bundleID = "com.kimi.desktop"
                 // macOS 包要求 MAJOR>0；语义版本 0.1 体现在最终 DMG 文件名上
-                packageVersion = "1.0.21"
+                packageVersion = "1.0.22"
                 iconFile.set(project.file("packaging/icon.icns"))
             }
         }

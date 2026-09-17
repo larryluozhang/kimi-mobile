@@ -32,6 +32,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.json.JSONObject
@@ -174,6 +176,7 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         recycler.adapter = adapter
 
         btnSend.setOnClickListener { sendCurrentText() }
+        setupImeInsets()
         setupVoice()
         setupModeBar()
         loadHistory()
@@ -761,12 +764,27 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                     } + queuedMsgs + pendingLocal)
                         .sortedWith(compareBy({ it.timeMillis <= 0L }, { it.timeMillis }))
                     toolItems.clear()
+                    // setAll 前记录阅读锚点：首可见项消息 id + 其 view 距列表顶偏移，
+                    // 用户不在底部时刷新后据此恢复位置（前插翻页也不漂）
+                    val lm = recycler.layoutManager as LinearLayoutManager
+                    val anchorPos = lm.findFirstVisibleItemPosition()
+                    val anchorId = messages.getOrNull(anchorPos)?.id
+                    val anchorOffset = if (anchorPos >= 0) lm.findViewByPosition(anchorPos)?.top ?: 0 else 0
+                    val atBottom = isNearBottom()
                     adapter.setAll(msgs)
-                    if (keepScrollOnNextRefresh) {
-                        // 「加载更早消息」触发的前插刷新：保持当前阅读位置，不跳到底部
-                        keepScrollOnNextRefresh = false
-                    } else {
-                        scrollToBottom()
+                    when {
+                        keepScrollOnNextRefresh -> {
+                            // 「加载更早消息」触发的前插刷新：保持当前阅读位置，不跳到底部
+                            keepScrollOnNextRefresh = false
+                        }
+                        atBottom -> scrollToBottom()
+                        else -> {
+                            // 用户正在阅读历史：按锚点 id 找新下标恢复位置，轮询不再把阅读位置顶掉
+                            val newIdx = messages.indexOfFirst { it.id == anchorId }
+                            if (newIdx >= 0) {
+                                recycler.post { lm.scrollToPositionWithOffset(newIdx, anchorOffset) }
+                            }
+                        }
                     }
                 }
             } catch (e: ApiException) {
@@ -1604,7 +1622,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         } else {
             adapter.updateText(streamingIndex, full)
         }
-        scrollToBottom()
+        // 在底部附近才跟随新帧，用户上翻阅读时不打断
+        if (isNearBottom()) scrollToBottom()
     }
 
     // ---------- UI 辅助 ----------
@@ -1637,6 +1656,35 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         val last = messages.size - 1
         // post 延迟到新 item 完成布局测量后再滚，避免落点不足导致最后一条半截留在列表下边界外
         recycler.post { recycler.scrollToPosition(last) }
+    }
+
+    /** 用户是否停留在底部附近（2 条容差）：轮询刷新/流式新帧只在底部时跟随到底 */
+    private fun isNearBottom(): Boolean {
+        val last = messages.size - 1
+        if (last < 0) return true
+        val lm = recycler.layoutManager as? LinearLayoutManager ?: return true
+        return lm.findLastVisibleItemPosition() >= last - 2
+    }
+
+    /** 键盘遮挡加固（adjustResize 之上再兜底，兼容 MIUI 等第三方输入法 insets 异常）：
+     *  IME 可见时滚到底保证最后消息+输入框不被遮；
+     *  IME 底边盖过输入栏时给输入栏手动补 paddingBottom（差值>0 才加），IME 关闭复位 */
+    private fun setupImeInsets() {
+        val inputBar = findViewById<LinearLayout>(R.id.inputBar)
+        val basePaddingBottom = inputBar.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(inputBar) { v, insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val sysBottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            val diff = imeBottom - sysBottom
+            v.setPadding(
+                v.paddingLeft, v.paddingTop, v.paddingRight,
+                basePaddingBottom + if (diff > 0) diff else 0
+            )
+            if (insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                scrollToBottom()
+            }
+            insets
+        }
     }
 
     private fun handleApiError(e: ApiException) {
