@@ -61,6 +61,15 @@ enum APIClient {
 
     // MARK: - 业务接口
 
+    /// 服务器元信息（GET /api/v1/meta）→ data.server（"kimi"/"claude"/"codex" 桥接等）。
+    /// 桥接端点可能无该接口/字段，调用方需容错（失败/缺失按 "kimi" 处理）
+    static func getMeta(server: String, token: String) async throws -> String {
+        let req = try request(server: server, token: token, path: "/api/v1/meta")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let d = try unwrap(data, resp)
+        return d["server"] as? String ?? "kimi"
+    }
+
     /// 拉服务端可用模型列表（GET /api/v1/models）→ data.items[]（provider/model/display_name/max_context_size）
     static func listModels(server: String, token: String) async throws -> [ModelItem] {
         let req = try request(server: server, token: token, path: "/api/v1/models")
@@ -313,7 +322,8 @@ enum APIClient {
 
     // MARK: - 审批 / 问答 / 中断
 
-    /// 轮询待审批项（GET /sessions/{id}/approvals?status=pending）→ data.items[]（approval_id/tool_name/action/tool_input_display.summary）
+    /// 轮询待审批项（GET /sessions/{id}/approvals?status=pending）
+    /// → data.items[]（approval_id/tool_name/action/tool_input_display.{summary,kind,plan,options}）
     static func listPendingApprovals(server: String, token: String, sessionId: String) async throws -> [ApprovalItem] {
         let path = "/api/v1/sessions/\(sessionId)/approvals?status=pending"
         let req = try request(server: server, token: token, path: path)
@@ -322,18 +332,32 @@ enum APIClient {
         let items = d["items"] as? [[String: Any]] ?? []
         return items.map { a in
             let display = a["tool_input_display"] as? [String: Any] ?? [:]
+            let os = display["options"] as? [[String: Any]] ?? []
+            let options = os.map { o in
+                QuestionOption(id: o["id"] as? String ?? "",
+                             label: o["label"] as? String ?? "",
+                             description: o["description"] as? String ?? "")
+            }
             return ApprovalItem(id: a["approval_id"] as? String ?? "",
                               toolName: a["tool_name"] as? String ?? "",
                               action: a["action"] as? String ?? "",
-                              summary: display["summary"] as? String ?? "")
+                              summary: display["summary"] as? String ?? "",
+                              displayKind: display["kind"] as? String ?? "",
+                              plan: display["plan"] as? String ?? "",
+                              options: options)
         }.filter { !$0.id.isEmpty }
     }
 
-    /// 响应审批：decision 为 approved / rejected
-    static func respondApproval(server: String, token: String, sessionId: String, approvalId: String, decision: String) async throws {
+    /// 响应审批：decision 为 approved / rejected；
+    /// 方案审批可随带 selected_label（批准时选中的选项 label）或 feedback（驳回附言），空则不带
+    static func respondApproval(server: String, token: String, sessionId: String, approvalId: String,
+                                decision: String, feedback: String? = nil, selectedLabel: String? = nil) async throws {
+        var body: [String: Any] = ["decision": decision]
+        if let feedback = feedback, !feedback.isEmpty { body["feedback"] = feedback }
+        if let selectedLabel = selectedLabel, !selectedLabel.isEmpty { body["selected_label"] = selectedLabel }
         let req = try request(server: server, token: token,
                           path: "/api/v1/sessions/\(sessionId)/approvals/\(approvalId)",
-                          method: "POST", body: ["decision": decision])
+                          method: "POST", body: body)
         let (data, resp) = try await URLSession.shared.data(for: req)
         _ = try unwrap(data, resp)
     }

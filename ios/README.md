@@ -14,9 +14,9 @@ iOS client for the Kimi Code web server (SwiftUI, iOS 17+). Feature parity with 
 
 On first launch, trust the developer certificate in Settings → General → VPN & Device Management. Re-run `redeploy.sh` before the 7-day expiry to renew.
 
-## Offline voice model
+## Voice input
 
-Same as Android: a sherpa-onnx streaming bilingual model, downloaded on demand in Settings. Falls back to `SFSpeechRecognizer` when the model is not installed.
+Uses the system speech recognizer (`SFSpeechRecognizer`, see `SpeechInput.swift`); no bundled or downloadable offline model.
 
 ## Protocol notes
 

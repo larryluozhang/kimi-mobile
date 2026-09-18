@@ -1,5 +1,6 @@
 package com.kimi.mobile
 
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -16,6 +17,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.PopupMenu
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
@@ -164,21 +166,35 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
         }
         val longClick = View.OnLongClickListener { anchor ->
             if (m.role == "user" && onForkFrom != null) {
-                // user 气泡：弹菜单（复制 / 从这里分叉）
+                // user 气泡：弹菜单（复制 / 从这里分叉 / 选择复制）
                 PopupMenu(ctx, anchor).apply {
                     menu.add(0, 1, 0, "复制")
                     menu.add(0, 2, 1, "从这里分叉")
+                    menu.add(0, 3, 2, "选择复制")
                     setOnMenuItemClickListener { item ->
                         when (item.itemId) {
                             1 -> { copyText(ctx, m.text); true }
                             2 -> { onForkFrom?.invoke(m); true }
+                            3 -> { showSelectCopyDialog(ctx, m.text); true }
                             else -> false
                         }
                     }
                     show()
                 }
             } else {
-                copyText(ctx, m.text)
+                // assistant/tool 气泡：弹菜单（复制 / 选择复制），与 user 侧对称
+                PopupMenu(ctx, anchor).apply {
+                    menu.add(0, 1, 0, "复制")
+                    menu.add(0, 3, 1, "选择复制")
+                    setOnMenuItemClickListener { item ->
+                        when (item.itemId) {
+                            1 -> { copyText(ctx, m.text); true }
+                            3 -> { showSelectCopyDialog(ctx, m.text); true }
+                            else -> false
+                        }
+                    }
+                    show()
+                }
             }
             true
         }
@@ -243,10 +259,35 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.VH>() {
     }
 
     /**
+     * 选择复制：弹窗内展示可选中的原文（markdown 源，与全文复制一致），
+     * 用户长按选中片段后经系统复制。气泡 TextView 不设 selectable，避免吞掉长按手势。
+     * 限高模式与 ChatActivity.showNextQuestion 一致：ScrollView + 最高约 60% 屏幕。
+     */
+    private fun showSelectCopyDialog(ctx: Context, text: String) {
+        val tv = TextView(ctx).apply {
+            this.text = text
+            setTextIsSelectable(true)
+        }
+        val scroll = ScrollView(ctx).apply { addView(tv) }
+        val maxH = (ctx.resources.displayMetrics.heightPixels * 0.6).toInt()
+        tv.post {
+            scroll.layoutParams = scroll.layoutParams.apply {
+                height = if (tv.height > maxH) maxH else ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            scroll.requestLayout()
+        }
+        AlertDialog.Builder(ctx)
+            .setTitle("选择复制")
+            .setView(scroll)
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    /**
      * 渲染 Markdown 代码段：``` 代码块 ``` 与 `行内代码`，
      * 等宽字体 + 深色底 + 稍小字号，剥离围栏符号。
      */
-    private fun decorateCode(ctx: Context, raw: String): CharSequence {
+    internal fun decorateCode(ctx: Context, raw: String): CharSequence {
         if (!raw.contains('`')) return raw
         val codeBg = ctx.getColor(R.color.code_bg)
         val codeFg = ctx.getColor(R.color.code_text)

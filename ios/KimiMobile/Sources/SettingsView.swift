@@ -8,13 +8,18 @@ struct SettingsView: View {
 
     @State private var editing: HostProfile?
     @State private var showEditor = false
-    /// 模型下载地址（UserDefaults voice_model_url）
-    @State private var modelURL = ModelDownloadManager.modelURL
-    @State private var modelInstalled = SpeechOnnx.modelAvailable
-    @State private var downloadError: String?
-    @StateObject private var downloader = ModelDownloadManager()
+    /// 导入服务器弹窗 + 导入成功后的确认提示
+    @State private var showImporter = false
+    @State private var importNotice = ""
+    @State private var showImportNotice = false
     /// 服务端模型列表（GET /api/v1/models）；拉取失败/为空保持空数组，模型行回退手动输入
     @State private var serverModels: [ModelItem] = []
+
+    /// 手动检查更新：进行中 / 有更新时弹提醒 / 其余结果（已是最新或失败）走 alert
+    @State private var updateChecking = false
+    @State private var updateFound: AppUpdateChecker.Info?
+    @State private var updateNotice = ""
+    @State private var showUpdateNotice = false
 
     /// 当前版本号，如 "0.4.9 (2)"；读不到时回退占位。
     static let appVersion: String = {
@@ -78,6 +83,11 @@ struct SettingsView: View {
                 } label: {
                     Label("添加主机", systemImage: "plus")
                 }
+                Button {
+                    showImporter = true
+                } label: {
+                    Label("导入服务器", systemImage: "square.and.arrow.down")
+                }
             } header: {
                 Text("主机档案")
             } footer: {
@@ -86,11 +96,6 @@ struct SettingsView: View {
 
             Section {
                 Toggle("语音输入", isOn: $store.voiceEnabled)
-                Picker("语音识别引擎", selection: $store.voiceEngine) {
-                    Text("自动（优先离线）").tag("auto")
-                    Text("离线模型").tag("onnx")
-                    Text("系统识别").tag("system")
-                }
                 HStack {
                     Text("模型")
                     Spacer()
@@ -115,46 +120,15 @@ struct SettingsView: View {
             } header: {
                 Text("偏好")
             } footer: {
-                Text("版本 \(Self.appVersion)")
-            }
-
-            Section {
                 HStack {
-                    Text("模型状态")
+                    Text("版本 \(Self.appVersion)")
                     Spacer()
-                    Text(modelInstalled ? "已安装" : "未下载")
-                        .foregroundColor(modelInstalled ? .green : .secondary)
-                }
-                TextField("模型下载地址", text: $modelURL)
-                    .font(.caption)
-                    .keyboardType(.URL)
-                    .autocapitalization(.none)
-                    .disableAutocorrection(true)
-                    .onChange(of: modelURL) { ModelDownloadManager.modelURL = $0 }
-                if let progress = downloader.progressText {
-                    HStack(spacing: 8) {
-                        ProgressView().scaleEffect(0.8)
-                        Text(progress)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    if updateChecking {
+                        ProgressView()
+                    } else {
+                        Button("检查更新", action: checkUpdate)
                     }
                 }
-                Button {
-                    downloadModel()
-                } label: {
-                    Label(modelInstalled ? "重新下载离线模型" : "下载离线模型",
-                          systemImage: "arrow.down.circle")
-                }
-                .disabled(downloader.isDownloading)
-                if let downloadError = downloadError {
-                    Text(downloadError)
-                        .font(.caption)
-                        .foregroundColor(Theme.error)
-                }
-            } header: {
-                Text("离线语音模型")
-            } footer: {
-                Text("模型约 189MB，下载到本机 Application Support，不占用安装包体积。")
             }
         }
         .navigationTitle("设置")
@@ -162,8 +136,27 @@ struct SettingsView: View {
             ProfileEditorSheet(profile: editing)
                 .environmentObject(store)
         }
+        .sheet(isPresented: $showImporter) {
+            ImportServerSheet { notice in
+                importNotice = notice
+                showImportNotice = true
+            }
+            .environmentObject(store)
+        }
+        .alert("导入服务器", isPresented: $showImportNotice) {
+            Button("好") {}
+        } message: {
+            Text(importNotice)
+        }
+        .sheet(item: $updateFound) { info in
+            UpdateReminderSheet(info: info)
+        }
+        .alert("检查更新", isPresented: $showUpdateNotice) {
+            Button("知道了") {}
+        } message: {
+            Text(updateNotice)
+        }
         .onAppear {
-            modelInstalled = SpeechOnnx.modelAvailable
             loadServerModels()
         }
         // 切换/增删主机档案后按新的当前主机重拉模型列表
@@ -179,6 +172,27 @@ struct SettingsView: View {
         return ids
     }
 
+    /// 手动检查更新：有更新弹提醒弹窗；已是最新/失败走 alert
+    private func checkUpdate() {
+        updateChecking = true
+        Task {
+            let result = await AppUpdateChecker.checkLatest()
+            updateChecking = false
+            switch result {
+            case .success(let info):
+                if info.updateAvailable {
+                    updateFound = info
+                } else {
+                    updateNotice = "已是最新版本"
+                    showUpdateNotice = true
+                }
+            case .failure(let error):
+                updateNotice = "检查更新失败：\(error.localizedDescription)"
+                showUpdateNotice = true
+            }
+        }
+    }
+
     /// 按当前主机档案拉模型列表；无 token/拉取失败/为空时保持空数组（UI 回退手动输入）
     private func loadServerModels() {
         let server = store.serverURL, token = store.token
@@ -192,21 +206,6 @@ struct SettingsView: View {
                 serverModels = models
             } else {
                 serverModels = []
-            }
-        }
-    }
-
-    private func downloadModel() {
-        downloadError = nil
-        Task {
-            do {
-                try await downloader.downloadAndInstall()
-                modelInstalled = SpeechOnnx.modelAvailable
-                if !modelInstalled {
-                    downloadError = "解压完成但模型文件不全，请检查压缩包内容"
-                }
-            } catch {
-                downloadError = "下载失败：\(error.localizedDescription)"
             }
         }
     }
@@ -278,5 +277,77 @@ struct ProfileEditorSheet: View {
         let p = HostProfile(id: profile?.id ?? UUID().uuidString, name: n, url: u)
         store.upsert(p, token: token.trimmingCharacters(in: .whitespacesAndNewlines))
         dismiss()
+    }
+}
+
+/// 导入服务器弹窗：粘贴 kimi-mobile://connect 深链或 JSON 卡片，一键建档并设为当前主机
+struct ImportServerSheet: View {
+    @EnvironmentObject private var store: ProfileStore
+    @Environment(\.dismiss) private var dismiss
+
+    /// onOpenURL 打开时预填的内容
+    var prefill: String = ""
+    /// 导入成功后回调（用于外层弹确认提示）
+    var onDone: ((String) -> Void)? = nil
+
+    @State private var text = ""
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                TextEditor(text: $text)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .frame(minHeight: 140)
+                    .padding(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.3))
+                    )
+                    .overlay(alignment: .topLeading) {
+                        if text.isEmpty {
+                            Text("粘贴 kimi-mobile://connect 链接或 JSON 卡片")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                                .padding(.top, 12)
+                                .padding(.leading, 9)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                if let error = error {
+                    Text(error)
+                        .font(.callout)
+                        .foregroundColor(Theme.error)
+                }
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("导入服务器")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("导入", action: importNow)
+                }
+            }
+            .onAppear {
+                if text.isEmpty { text = prefill }
+            }
+        }
+    }
+
+    private func importNow() {
+        switch ServerImporter.parse(text) {
+        case .failure(let e):
+            error = e.errorDescription
+        case .success(let payload):
+            let p = store.importServer(name: payload.name, url: payload.url, token: payload.token)
+            dismiss()
+            onDone?("已导入「\(p.name)」并设为当前主机")
+        }
     }
 }

@@ -3,6 +3,7 @@ package com.kimi.desktop
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -48,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +81,34 @@ private fun imageMime(name: String): String = when (name.substringAfterLast('.',
     "webp" -> "image/webp"
     "bmp" -> "image/bmp"
     else -> "image/png"
+}
+
+/** / 命令补全候选：与 handleSlash 拦截的命令保持一致（desc 用于补全列表展示） */
+private data class SlashCommand(val name: String, val desc: String)
+
+private val slashCommands = listOf(
+    SlashCommand("/compact", "压缩当前会话历史"),
+    SlashCommand("/archive", "归档会话"),
+    SlashCommand("/fork", "分叉当前会话"),
+    SlashCommand("/rename", "重命名会话"),
+    SlashCommand("/abort", "中止本轮执行"),
+    SlashCommand("/stop", "同 /abort"),
+    SlashCommand("/new", "新建会话"),
+    SlashCommand("/help", "命令帮助")
+)
+
+/**
+ * 滚到列表最底部：scrollToItem 只保证条目可见（比视口高的条目只露出顶部），
+ * 等一帧布局落定后按溢出量补滚，保证末尾完整露出（历史会话最后一条常是多行长回复）
+ */
+private suspend fun scrollListToEnd(listState: LazyListState, lastIndex: Int) {
+    if (lastIndex < 0) return
+    listState.scrollToItem(lastIndex)
+    withFrameNanos { }
+    val info = listState.layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return
+    val overflow = last.offset + last.size - info.viewportEndOffset
+    if (overflow > 0) listState.scrollBy(overflow.toFloat())
 }
 
 @Composable
@@ -401,8 +432,9 @@ private fun Sidebar(state: AppState, scope: kotlinx.coroutines.CoroutineScope, m
 @Composable
 private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, modifier: Modifier) {
     val sessionId = state.activeSessionId
-    var input by remember { mutableStateOf("") }
-    // 待发图片与上传中标记（切会话不保留，与输入框同为页面级状态）
+    // 输入框草稿按会话隔离（state.drafts 持久于重组，切走再切回时恢复）
+    var input by remember(sessionId) { mutableStateOf(state.drafts[sessionId] ?: "") }
+    // 待发图片与上传中标记（切会话不保留；输入框文本则按会话保留在 state.drafts）
     var pendingImage by remember { mutableStateOf<PendingImage?>(null) }
     var imageUploading by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -466,6 +498,16 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             state.profileLoading = false
             if (state.sessionProfile == null) {
                 state.sessionProfile = Api.SessionProfile("", "", "manual", false, false, "", "")
+            }
+        }
+
+        // 后端类型（kimi/claude/codex）：进会话拉一次 meta，仅影响权限模式文案；失败保持 kimi，不阻塞会话打开
+        launch {
+            state.serverType = "kimi"
+            val meta = withContext(Dispatchers.IO) { Api.getMeta(state.server(), state.token()) }
+            if (meta != null && state.activeSessionId == sessionId) {
+                state.serverType = meta.optString("server", "").ifEmpty { "kimi" }
+                AppLog.log("META", "后端类型: ${state.serverType}")
             }
         }
 
@@ -618,10 +660,21 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
         }
     }
 
-    // 新内容自动滚到底：仅当用户本就在底部附近时才跟随，避免轮询刷新把阅读位置顶掉
+    // 新内容自动滚到底：会话打开/切换后的首次内容到达无条件滚到底（listState 跨会话复用，
+    // 切走时的阅读位置会让"接近底部"判断在首次加载时失效，导致打开历史会话停在列表顶部）；
+    // 此后仅当用户本就在底部附近时才跟随，避免轮询刷新把阅读位置顶掉
+    var pendingInitialScroll by remember(sessionId) { mutableStateOf(true) }
     val itemCount = state.messages.size + state.frames.size
     LaunchedEffect(itemCount, state.frames.lastOrNull()?.text) {
         if (itemCount <= 0) return@LaunchedEffect
+        if (pendingInitialScroll) {
+            pendingInitialScroll = false
+            // LazyColumn 实际还含顶部「加载更早」与底部 loading 占位条目，定位末尾要算上
+            val headerItems = if (state.historyHasMore || state.olderLoading || state.olderLoadedOnce) 1 else 0
+            val lastIndex = headerItems + itemCount - 1 + (if (state.historyLoading) 1 else 0)
+            scrollListToEnd(listState, lastIndex)
+            return@LaunchedEffect
+        }
         val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
         // 在底部附近（允许 1 条容差）才滚到底；否则 LazyColumn 按 key 保持位置，无需干预
         if (lastVisible >= itemCount - 2) listState.animateScrollToItem(itemCount - 1)
@@ -947,6 +1000,7 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             val img = pendingImage
             if ((text.isNotEmpty() || img != null) && sessionId.isNotEmpty() && !imageUploading) {
                 input = ""
+                state.drafts.remove(sessionId)
                 // / 命令仅纯文本时拦截；带图时不解析（图片保留待发）
                 if (img == null && text.startsWith("/") && handleSlash(text)) {
                     AppLog.log("SEND", "执行命令: $text")
@@ -1021,6 +1075,34 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
                 }
             }
         }
+        // / 命令补全：输入以 / 开头且尚未出现空格时，在输入框上方按前缀（忽略大小写）给出候选；
+        // 选中填入 "/cmd "（带尾随空格，光标随之到末尾），发送时仍走 handleSlash 原拦截
+        val slashSuggestions = if (input.startsWith("/") && ' ' !in input && '\n' !in input) {
+            slashCommands.filter { it.name.startsWith(input, ignoreCase = true) }
+        } else emptyList()
+        if (slashSuggestions.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(12.dp),
+                tonalElevation = 2.dp,
+                shadowElevation = 4.dp
+            ) {
+                Column {
+                    for (cmd in slashSuggestions) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable { input = cmd.name + " "; state.drafts[sessionId] = input }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(cmd.name, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(10.dp))
+                            Text(cmd.desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.Bottom
@@ -1072,7 +1154,7 @@ private fun ChatPane(state: AppState, scope: kotlinx.coroutines.CoroutineScope, 
             }
             OutlinedTextField(
                 value = input,
-                onValueChange = { input = it },
+                onValueChange = { input = it; state.drafts[sessionId] = it },
                 modifier = Modifier.weight(1f).onPreviewKeyEvent { ev ->
                     if (ev.type == KeyEventType.KeyDown && ev.key == Key.Enter && !ev.isShiftPressed) {
                         doSend()

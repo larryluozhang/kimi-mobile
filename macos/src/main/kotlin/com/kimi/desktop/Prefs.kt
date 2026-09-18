@@ -140,6 +140,17 @@ object Prefs {
 
     fun lastWorkspaceId(): String? = load().getProperty(KEY_WORKSPACE)
 
+    // ---- 应用自更新：上次检查时间（24h 一次自动检查，见 AppUpdater.autoCheckOnLaunch） ----
+    private const val KEY_LAST_UPDATE_CHECK = "last_update_check_ms"
+
+    fun lastUpdateCheckMs(): Long = load().getProperty(KEY_LAST_UPDATE_CHECK)?.toLongOrNull() ?: 0L
+
+    fun setLastUpdateCheckMs(ms: Long) {
+        val p = load()
+        p.setProperty(KEY_LAST_UPDATE_CHECK, ms.toString())
+        save(p)
+    }
+
     fun setLastWorkspaceId(id: String) {
         val p = load()
         p.setProperty(KEY_WORKSPACE, id)

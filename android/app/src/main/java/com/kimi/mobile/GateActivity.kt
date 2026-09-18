@@ -60,6 +60,20 @@ class GateActivity : AppCompatActivity() {
                 }
             }
         }
+
+        maybeAutoCheckUpdate()
+    }
+
+    /** 启动时自动检查更新：每 24h 至多一次，失败静默；有新版弹更新对话框 */
+    private fun maybeAutoCheckUpdate() {
+        val now = System.currentTimeMillis()
+        if (now - Prefs.lastUpdateCheck(this) < 24L * 60 * 60 * 1000) return
+        Prefs.setLastUpdateCheck(this, now)
+        AppUpdater.checkLatest(this) { result ->
+            if (result is AppUpdater.CheckResult.Available && !isFinishing && !isDestroyed) {
+                AppUpdater.showUpdateDialog(this, result.info)
+            }
+        }
     }
 
     override fun onResume() {

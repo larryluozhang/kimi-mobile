@@ -15,7 +15,9 @@ import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 
 /**
- * sherpa-onnx 离线流式语音识别封装（中英双语 zipformer，模型按需下载到 filesDir/models/zipformer-bilingual/）。
+ * sherpa-onnx 离线流式语音识别封装（中英双语 zipformer）。
+ * 原生引擎（4 个 .so）与模型（4 件套）均按需下载：
+ * 引擎在 filesDir/native-engine/1.13.7/（见 NativeEngine），模型在 filesDir/models/zipformer-bilingual/。
  *
  * 用法：
  *   val engine = SpeechOnnx(context)
@@ -62,9 +64,13 @@ class SpeechOnnx(private val context: Context) {
     private var recordThread: Thread? = null
     private var callback: Callback? = null
 
-    /** 同步初始化（加载模型，耗时数百 ms；调用方应在子线程调用）。失败返回 false，不抛异常。 */
+    /** 同步初始化（加载引擎 + 模型，耗时数百 ms；调用方应在子线程调用）。失败返回 false，不抛异常。 */
     fun init(): Boolean {
         if (recognizer != null) return true
+        if (!NativeEngine.load(context)) {
+            Log.w(TAG, "native engine not loaded (not downloaded?)")
+            return false
+        }
         if (!isModelAvailable(context)) {
             Log.w(TAG, "model files missing in ${modelDir(context)}")
             return false

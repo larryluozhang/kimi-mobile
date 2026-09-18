@@ -6,6 +6,8 @@ struct ModeBarView: View {
     @ObservedObject var vm: ChatViewModel
     @State private var expanded = false
     @State private var goalInput = ""
+    /// 切到「完全放权」前的二次确认弹窗（每次切换都弹，不记住选择）
+    @State private var showAutoConfirm = false
 
     private var cfg: AgentConfig { vm.agentConfig ?? AgentConfig() }
 
@@ -20,6 +22,15 @@ struct ModeBarView: View {
         // 计划模式开启时的明显视觉提示：整条模式栏染品牌蓝紫渐变
         .background(cfg.planMode ? AnyView(Theme.brandGradient.opacity(0.18)) : AnyView(Color.clear))
         .background(Theme.assistantBubble.opacity(0.6))
+        // 切到「完全放权」的二次确认：仅在确认后才 updateProfile；取消则 Picker 回显原模式
+        .confirmationDialog("⚠️ 完全放权", isPresented: $showAutoConfirm, titleVisibility: .visible) {
+            Button("确定开启", role: .destructive) {
+                vm.updateProfile(fields: ["permission_mode": "auto"]) { $0.permissionMode = "auto" }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("agent 可直接修改、删除文件并执行任意命令，不再逐条征求你的同意。确定开启？")
+        }
     }
 
     // MARK: - 折叠行
@@ -71,9 +82,19 @@ struct ModeBarView: View {
 
     private var permissionLabel: String {
         switch cfg.permissionMode {
-        case "yolo": return "权限: YOLO"
-        case "auto": return "权限: 自动"
-        default: return "权限: 手动"
+        case "manual": return "权限: 每步确认"
+        case "yolo": return "权限: 常规自动"
+        case "auto": return "权限: 完全放权（危险）"
+        default: return "权限: \(cfg.permissionMode)" // 未知值原样展示
+        }
+    }
+
+    /// 「常规自动」的后端差异说明（GET /api/v1/meta 的 server；失败/未知按 kimi 通用文案）
+    private var yoloPickerLabel: String {
+        switch vm.serverType {
+        case "claude": return "常规自动（只自动接受编辑）"
+        case "codex": return "常规自动（失败才询问）"
+        default: return "常规自动（敏感仍询问）"
         }
     }
 
@@ -108,9 +129,9 @@ struct ModeBarView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Picker("权限模式", selection: permissionBinding) {
-                    Text("手动确认").tag("manual")
-                    Text("自动").tag("auto")
-                    Text("YOLO").tag("yolo")
+                    Text("每步确认").tag("manual")
+                    Text(yoloPickerLabel).tag("yolo")
+                    Text("完全放权（危险）").tag("auto")
                 }
                 .pickerStyle(.segmented)
             }
@@ -183,9 +204,16 @@ struct ModeBarView: View {
         })
     }
 
+    /// 切到 auto（完全放权）不立即生效：先弹二次确认，确认后才 updateProfile；
+    /// 取消则什么也不做，Picker 绑定 get 仍读 cfg.permissionMode，自然回显原模式
     private var permissionBinding: Binding<String> {
         Binding(get: { cfg.permissionMode }, set: { mode in
-            vm.updateProfile(fields: ["permission_mode": mode]) { $0.permissionMode = mode }
+            guard mode != cfg.permissionMode else { return }
+            if mode == "auto" {
+                showAutoConfirm = true
+            } else {
+                vm.updateProfile(fields: ["permission_mode": mode]) { $0.permissionMode = mode }
+            }
         })
     }
 

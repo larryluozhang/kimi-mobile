@@ -5,27 +5,34 @@ import PhotosUI
 struct ChatView: View {
     @StateObject private var vm: ChatViewModel
     @StateObject private var speech = SpeechInput()
-    /// 离线识别引擎（sherpa-onnx）；voiceEngine=auto 且模型存在时优先
-    @StateObject private var speechOnnx = SpeechOnnx()
 
     @State private var input = ""
     @State private var showSpeechDeniedAlert = false
     /// 视口是否停在底部附近（末条气泡可见即视为在底部）；轮询/流式刷新只在底部时才跟随滚动，不在底部不打断阅读
     @State private var isAtBottom = true
+    /// 进会话后是否已完成首次滚底：历史首批到达时无条件滚到底（不依赖 isAtBottom 巧合为真），
+    /// 之后恢复 isAtBottom 跟随逻辑
+    @State private var hasInitiallyScrolled = false
     /// PhotosPicker 选中项（onChange 里取 Data 上传，上传成功暂存 vm.pendingImage）
     @State private var selectedPhoto: PhotosPickerItem?
+    /// 方案审批 sheet 的展示项（ExitPlanMode / kind=plan_review 的审批卡片点「查看方案」弹出）
+    @State private var planReviewItem: ApprovalItem?
     @FocusState private var inputFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     private let store: ProfileStore
+    private let sessionId: String
     private let voiceEnabled: Bool
 
-    /// 任一语音引擎录制中
-    private var anyRecording: Bool { speech.isRecording || speechOnnx.isRecording }
+    /// 语音录制中
+    private var anyRecording: Bool { speech.isRecording }
 
     init(store: ProfileStore, sessionId: String, sessionTitle: String) {
         self.store = store
+        self.sessionId = sessionId
         self.voiceEnabled = store.voiceEnabled
+        // 恢复该会话的输入草稿（返回列表后重进不丢草稿）
+        _input = State(initialValue: SessionDraftStore.load(sessionId: sessionId))
         _vm = StateObject(wrappedValue: ChatViewModel(store: store,
                                                       sessionId: sessionId,
                                                       sessionTitle: sessionTitle))
@@ -86,6 +93,18 @@ struct ChatView: View {
         .navigationDestination(item: $vm.forkTarget) { s in
             ChatView(store: store, sessionId: s.id, sessionTitle: s.title)
         }
+        // 方案审批 sheet（同 $selectionText 的 Identifiable-wrapper 模式）
+        .sheet(item: $planReviewItem) { item in
+            PlanReviewSheet(item: item, submitting: vm.approvalsResponding,
+                onApprove: { selectedLabel in
+                    planReviewItem = nil
+                    vm.respondApproval(item, decision: "approved", selectedLabel: selectedLabel)
+                },
+                onReject: { feedback in
+                    planReviewItem = nil
+                    vm.respondApproval(item, decision: "rejected", feedback: feedback)
+                })
+        }
         .alert("可用命令", isPresented: $vm.showSlashHelp) {
             Button("好", role: .cancel) {}
         } message: {
@@ -105,12 +124,12 @@ struct ChatView: View {
             selectedPhoto = nil
             loadAndAttachPhoto(item)
         }
+        // 输入草稿按会话持久化（onChange 比 onDisappear 更稳，崩溃/杀进程也尽量留住）
+        .onChange(of: input) { draft in
+            SessionDraftStore.save(sessionId: sessionId, draft: draft)
+        }
         .onChange(of: speech.partialText) { text in
             guard speech.isRecording || !text.isEmpty else { return }
-            input = text
-        }
-        .onChange(of: speechOnnx.partialText) { text in
-            guard speechOnnx.isRecording || !text.isEmpty else { return }
             input = text
         }
     }
@@ -160,7 +179,8 @@ struct ChatView: View {
             ForEach(vm.pendingApprovals) { item in
                 ApprovalCard(item: item, submitting: vm.approvalsResponding,
                            onApprove: { vm.respondApproval(item, decision: "approved") },
-                           onReject: { vm.respondApproval(item, decision: "rejected") })
+                           onReject: { vm.respondApproval(item, decision: "rejected") },
+                           onShowPlan: item.isPlanReview ? { planReviewItem = item } : nil)
             }
         }
         .padding(.horizontal)
@@ -222,6 +242,13 @@ struct ChatView: View {
                 if let anchor = vm.scrollAnchorAfterPrepend {
                     vm.scrollAnchorAfterPrepend = nil
                     proxy.scrollTo(anchor, anchor: .top)
+                } else if !hasInitiallyScrolled {
+                    // 首次内容到达：无条件滚到底（打开历史会话即见最新消息）。
+                    // 延后一个 runloop：onChange 触发时 LazyVStack 新行可能尚未布局，
+                    // 此时 scrollTo 目标 id 未注册会静默空转
+                    hasInitiallyScrolled = true
+                    isAtBottom = true
+                    DispatchQueue.main.async { scrollToBottom(proxy) }
                 } else if isAtBottom {
                     // 仅当用户在底部时才跟随新内容；阅读历史时不拽回底部
                     scrollToBottom(proxy)
@@ -245,6 +272,10 @@ struct ChatView: View {
 
     private var inputBar: some View {
         VStack(spacing: 0) {
+            // / 命令补全：输入以 / 开头且不含空格时按前缀过滤展示（点选填入 "/cmd "）
+            if !slashCompletions.isEmpty {
+                slashCompletionPanel
+            }
             // 待发送图片：小预览 + 移除按钮（发送图文一起走，见 vm.send）
             if let pending = vm.pendingImage {
                 HStack {
@@ -336,13 +367,63 @@ struct ChatView: View {
         .background(.bar)
     }
 
+    // MARK: - / 命令补全
+
+    /// 可补全的 / 命令（与 ChatViewModel.handleSlash 拦截的命令保持一致）
+    private static let slashCommands: [(cmd: String, desc: String)] = [
+        ("/compact", "压缩当前会话历史"),
+        ("/archive", "归档会话"),
+        ("/fork", "分叉当前会话"),
+        ("/rename", "重命名会话"),
+        ("/abort", "中止本轮执行"),
+        ("/stop", "同 /abort"),
+        ("/new", "新建会话"),
+        ("/help", "命令帮助"),
+    ]
+
+    /// 补全候选：输入以 / 开头、不含空格时按前缀（忽略大小写）过滤；无匹配/含空格/非 / 开头时不显示
+    private var slashCompletions: [(cmd: String, desc: String)] {
+        guard input.hasPrefix("/"), !input.contains(" ") else { return [] }
+        let prefix = input.lowercased()
+        return Self.slashCommands.filter { $0.cmd.hasPrefix(prefix) }
+    }
+
+    /// 补全面板：输入框上方的候选列表，点选填入 "/cmd "（尾随空格，便于继续输入参数）
+    private var slashCompletionPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(slashCompletions, id: \.cmd) { item in
+                Button {
+                    input = item.cmd + " "
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(item.cmd)
+                            .font(.system(.subheadline, design: .monospaced))
+                            .foregroundColor(Theme.primary)
+                        Text(item.desc)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Theme.assistantBubble)
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
+        .padding(.horizontal)
+        .padding(.top, 8)
+    }
+
     // MARK: - 动作
 
     private func sendCurrent() {
         let text = input
         input = ""
         if speech.isRecording { speech.stop() }
-        if speechOnnx.isRecording { speechOnnx.stop() }
         // 自己发消息视为回到底部的明确意图（随后 count onChange 会跟随滚动）
         isAtBottom = true
         vm.send(text)
@@ -370,28 +451,7 @@ struct ChatView: View {
 
     private func toggleVoice() {
         if speech.isRecording { speech.stop(); return }
-        if speechOnnx.isRecording { speechOnnx.stop(); return }
         Task {
-            let engine = store.voiceEngine
-            // 离线优先：auto/onnx 且模型已下载（Application Support/models/zipformer-bilingual/）时走 sherpa-onnx
-            if engine != "system", SpeechOnnx.modelAvailable {
-                guard await speechOnnx.requestPermissions() else {
-                    showSpeechDeniedAlert = true
-                    return
-                }
-                if await speechOnnx.prepare() {
-                    speechOnnx.start()
-                    return
-                }
-                if engine == "onnx" {
-                    vm.toast = speechOnnx.lastError ?? "离线模型加载失败"
-                    return
-                }
-                // auto：离线加载失败，回退系统识别
-            } else if engine == "onnx" {
-                vm.toast = "离线模型未安装，请先到设置页下载离线模型"
-                return
-            }
             let ok = await speech.requestPermissions()
             if ok {
                 speech.start()
@@ -404,6 +464,12 @@ struct ChatView: View {
 
 // MARK: - 气泡
 
+/// 「选择文本」sheet 的 item（.sheet(item:) 需要 Identifiable）
+struct SelectableTextItem: Identifiable {
+    let id = UUID()
+    let text: String
+}
+
 struct MessageBubble: View {
     let message: ChatMessage
     /// 附件图片拉取用的服务器与 token（GET /api/v1/files/{id} 需 Authorization）
@@ -411,6 +477,9 @@ struct MessageBubble: View {
     var imageToken: String = ""
     /// user 气泡长按「从这里分叉」回调（fork 全量克隆 + 新会话 undo 分叉点之后的消息）
     var onForkFrom: ((ChatMessage) -> Void)? = nil
+
+    /// 「选择文本」sheet 内容：非 nil 时弹出可选中复制的原文视图
+    @State private var selectionText: SelectableTextItem?
 
     private var isUser: Bool { message.role == "user" }
     private var isTool: Bool { message.role == "tool" }
@@ -517,6 +586,12 @@ struct MessageBubble: View {
             } label: {
                 Label("复制", systemImage: "doc.on.doc")
             }
+            // 气泡自身不加 .textSelection（与长按菜单/滚动手势冲突），改为弹 sheet 局部选择
+            Button {
+                selectionText = SelectableTextItem(text: message.text)
+            } label: {
+                Label("选择文本", systemImage: "selection.pin.in.out")
+            }
             // 仅 user 气泡可分叉：fork 全量克隆后在新会话 undo 该消息之后的 n 条 user 消息
             if isUser, let onForkFrom = onForkFrom {
                 Button {
@@ -526,17 +601,38 @@ struct MessageBubble: View {
                 }
             }
         }
+        .sheet(item: $selectionText) { item in
+            NavigationStack {
+                ScrollView {
+                    // 展示原始 markdown 源码，系统选择器长按圈选局部复制
+                    Text(item.text)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .navigationTitle("选择文本")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("关闭") { selectionText = nil }
+                    }
+                }
+            }
+        }
     }
 }
 
 // MARK: - 审批卡片
 
-/// 审批卡片：tool_name · action + summary，批准/拒绝（POST /sessions/{id}/approvals/{approval_id}）
+/// 审批卡片：tool_name · action + summary，批准/拒绝（POST /sessions/{id}/approvals/{approval_id}）；
+/// 方案审批（ExitPlanMode / kind=plan_review）额外提供「查看方案」按钮，弹 sheet 看完整方案再批
 struct ApprovalCard: View {
     let item: ApprovalItem
     let submitting: Bool
     let onApprove: () -> Void
     let onReject: () -> Void
+    /// 方案审批专用：非 nil 时显示「查看方案」按钮
+    var onShowPlan: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -553,6 +649,11 @@ struct ApprovalCard: View {
                     .lineLimit(3)
             }
             HStack(spacing: 10) {
+                if let onShowPlan = onShowPlan {
+                    Button("查看方案") { onShowPlan() }
+                        .buttonStyle(.bordered)
+                        .tint(Theme.primary)
+                }
                 Button("批准") { onApprove() }
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
@@ -567,6 +668,98 @@ struct ApprovalCard: View {
         .background(Color.orange.opacity(0.08))
         .cornerRadius(12)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.4), lineWidth: 1))
+    }
+}
+
+// MARK: - 方案审批 sheet
+
+/// 方案审批（ExitPlanMode / kind=plan_review）：Markdown 渲染完整方案，
+/// 选项非空时单选（批准随 selected_label 上报），驳回可填附言（随 feedback 上报）
+struct PlanReviewSheet: View {
+    let item: ApprovalItem
+    let submitting: Bool
+    /// 批准回调，参数为选中选项的 label（未选/无选项为 nil）
+    let onApprove: (String?) -> Void
+    /// 驳回回调，参数为附言（空为 nil）
+    let onReject: (String?) -> Void
+
+    /// 已选选项 id（radio 单选，再点取消）
+    @State private var selectedOptionId: String?
+    @State private var feedback = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if !item.plan.isEmpty {
+                            MarkdownContent(text: item.plan)
+                        } else if !item.summary.isEmpty {
+                            Text(item.summary)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        if !item.options.isEmpty {
+                            Divider()
+                            ForEach(item.options) { opt in
+                                Button {
+                                    selectedOptionId = (selectedOptionId == opt.id) ? nil : opt.id
+                                } label: {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Image(systemName: selectedOptionId == opt.id
+                                              ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(Theme.primary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(opt.label).font(.subheadline)
+                                            if !opt.description.isEmpty {
+                                                Text(opt.description)
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.primary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                }
+                Divider()
+                VStack(spacing: 10) {
+                    TextField("驳回附言（可选）", text: $feedback)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.subheadline)
+                    HStack(spacing: 10) {
+                        Button("批准") {
+                            let label = item.options.first(where: { $0.id == selectedOptionId })?.label
+                            onApprove(label)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                        Button("驳回") {
+                            let text = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+                            onReject(text.isEmpty ? nil : text)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        Spacer()
+                    }
+                    .disabled(submitting)
+                }
+                .padding()
+            }
+            .navigationTitle("方案审批")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
     }
 }
 

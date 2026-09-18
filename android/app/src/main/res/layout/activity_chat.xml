@@ -165,7 +165,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="手动"
+                android:text="每步确认"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp" />
 
@@ -174,7 +174,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="自动"
+                android:text="完全放权（危险）"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp" />
 
@@ -183,7 +183,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="YOLO"
+                android:text="常规自动（敏感仍询问）"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp" />
         </RadioGroup>
@@ -298,16 +298,42 @@
         </LinearLayout>
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tvStatus"
+    <!-- 状态条：turn 状态提示（左）+ 停止按钮（右，仅 turn 进行中显示，POST :abort） -->
+    <LinearLayout
+        android:id="@+id/statusBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/status_bg"
-        android:gravity="center"
-        android:padding="8dp"
-        android:textColor="@color/status_text"
-        android:textSize="13sp"
-        android:visibility="gone" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:padding="8dp"
+            android:textColor="@color/status_text"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/btnStop"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp"
+            android:text="停止"
+            android:textColor="@color/error"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <!-- 历史分页入口：仅当可能有更早消息时显示（ChatActivity.updateLoadEarlierView 控制） -->
     <TextView

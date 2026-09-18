@@ -231,15 +231,10 @@ fun MessageBubble(
                     }
                     // 纯图片消息无文本块，跳过文本渲染
                     if (text.isNotEmpty()) {
-                    // user 气泡：给文本选择菜单也挂上「从这里分叉」（SelectionContainer 的内建菜单只有复制，
-                    // 通过 LocalTextContextMenu 提供自定义菜单才能看到分叉项）
-                    if (isUser && onForkFromHere != null) {
-                        CompositionLocalProvider(LocalTextContextMenu provides forkTextContextMenu(onForkFromHere)) {
-                            SelectionContainer {
-                                BubbleText(text = text, streaming = streaming, isUser = isUser, isError = isError, isThinking = isThinking)
-                            }
-                        }
-                    } else {
+                    // 所有气泡统一用中文文本选择菜单（SelectionContainer 的内建菜单是英文 "Copy"）；
+                    // user 气泡额外挂「从这里分叉」（onFork 非 null 时菜单才有分叉项）
+                    val textMenu = forkTextContextMenu(if (isUser) onForkFromHere else null)
+                    CompositionLocalProvider(LocalTextContextMenu provides textMenu) {
                         SelectionContainer {
                             BubbleText(text = text, streaming = streaming, isUser = isUser, isError = isError, isThinking = isThinking)
                         }
@@ -317,8 +312,8 @@ private fun BubbleText(text: String, streaming: Boolean, isUser: Boolean, isErro
     }
 }
 
-/** user 气泡的文本选择上下文菜单：复制 + 从这里分叉 */
-private fun forkTextContextMenu(onFork: () -> Unit): TextContextMenu = object : TextContextMenu {
+/** 气泡文本选择上下文菜单：复制；onFork 非 null 时再加「从这里分叉」（仅 user 气泡） */
+private fun forkTextContextMenu(onFork: (() -> Unit)?): TextContextMenu = object : TextContextMenu {
     @Composable
     override fun Area(
         textManager: TextContextMenu.TextManager,
@@ -331,7 +326,9 @@ private fun forkTextContextMenu(onFork: () -> Unit): TextContextMenu = object : 
                     textManager.copy?.let { copy ->
                         add(ContextMenuItem("复制") { copy(); state.status = ContextMenuState.Status.Closed })
                     }
-                    add(ContextMenuItem("从这里分叉") { onFork(); state.status = ContextMenuState.Status.Closed })
+                    if (onFork != null) {
+                        add(ContextMenuItem("从这里分叉") { onFork(); state.status = ContextMenuState.Status.Closed })
+                    }
                 }
             },
             state = state,

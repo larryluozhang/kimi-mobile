@@ -17,3 +17,6 @@ local.properties
 android/app/src/main/assets/models/
 ios/KimiMobile/Resources/models/*
 !ios/KimiMobile/Resources/models/.gitkeep
+
+# 语音引擎 AAR 体积大（47MB），不入库；构建前从 sherpa-onnx GitHub Releases 下载到 app/libs/
+android/app/libs/

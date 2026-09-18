@@ -387,12 +387,28 @@ object Api {
         return ctx to limit
     }
 
+    /** 服务端元信息（GET /api/v1/meta）；失败返回 null，调用方按 kimi 文案回退，不得阻塞会话打开 */
+    fun getMeta(server: String, token: String): JSONObject? {
+        return try {
+            getData(server, token, "/api/v1/meta")
+        } catch (e: Throwable) {
+            AppLog.error("HTTP", "GET /api/v1/meta 失败", e)
+            null
+        }
+    }
+
     /** 待审批的工具调用（GET .../approvals?status=pending） */
     data class ApprovalItem(
         val id: String,
         val toolName: String,
         val action: String,
-        val summary: String
+        val summary: String,
+        /** tool_input_display.kind；plan_review 表示计划审批 */
+        val displayKind: String = "",
+        /** tool_input_display.plan：计划全文（计划审批时展示） */
+        val plan: String = "",
+        /** tool_input_display.options：批准可选项（与 QuestionCard 同一选项模型） */
+        val options: List<QuestionOption> = emptyList()
     )
 
     fun listPendingApprovals(server: String, token: String, sessionId: String): List<ApprovalItem> {
@@ -402,24 +418,44 @@ object Api {
         for (i in 0 until items.length()) {
             val a = items.optJSONObject(i) ?: continue
             val display = a.optJSONObject("tool_input_display")
+            val opts = ArrayList<QuestionOption>()
+            val optArr = display?.optJSONArray("options")
+            if (optArr != null) {
+                for (k in 0 until optArr.length()) {
+                    val o = optArr.optJSONObject(k) ?: continue
+                    opts.add(
+                        QuestionOption(
+                            id = o.optString("id"),
+                            label = o.optString("label", o.optString("text", o.optString("id"))),
+                            description = o.optString("description", "")
+                        )
+                    )
+                }
+            }
             out.add(
                 ApprovalItem(
                     id = a.optString("approval_id"),
                     toolName = a.optString("tool_name", ""),
                     action = a.optString("action", ""),
-                    summary = display?.optString("summary", "") ?: ""
+                    summary = display?.optString("summary", "") ?: "",
+                    displayKind = display?.optString("kind", "") ?: "",
+                    plan = display?.optString("plan", "") ?: "",
+                    options = opts
                 )
             )
         }
         return out
     }
 
-    /** 审批应答：decision=approved/rejected */
-    fun respondApproval(server: String, token: String, sessionId: String, approvalId: String, approved: Boolean) {
+    /** 审批应答：decision=approved/rejected；批准选中项带 selected_label，驳回附言带 feedback（均非空才带） */
+    fun respondApproval(server: String, token: String, sessionId: String, approvalId: String, approved: Boolean, feedback: String = "", selectedLabel: String = "") {
+        val payload = JSONObject().put("decision", if (approved) "approved" else "rejected")
+        if (selectedLabel.isNotEmpty()) payload.put("selected_label", selectedLabel)
+        if (feedback.isNotEmpty()) payload.put("feedback", feedback)
         postData(
             server, token,
             "/api/v1/sessions/$sessionId/approvals/$approvalId",
-            JSONObject().put("decision", if (approved) "approved" else "rejected")
+            payload
         )
     }
 

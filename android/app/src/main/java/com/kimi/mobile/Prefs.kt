@@ -20,8 +20,10 @@ object Prefs {
     private const val KEY_VOICE = "voice_enabled"
     private const val KEY_VOICE_ENGINE = "voice_engine"
     private const val KEY_VOICE_MODEL_URL = "voice_model_url"
+    private const val KEY_VOICE_ENGINE_URL = "voice_engine_url"
     private const val KEY_MODEL = "model"
     private const val KEY_WORKSPACE = "last_workspace_id"
+    private const val KEY_LAST_UPDATE_CHECK = "last_update_check"
     // 旧版单主机字段（用于迁移）
     private const val KEY_SERVER = "server_url"
     private const val KEY_TOKEN = "token"
@@ -32,6 +34,8 @@ object Prefs {
     const val DEFAULT_WORKSPACE_ROOT = "/tmp/kimi-workspace"
     const val DEFAULT_VOICE_MODEL_URL =
         "https://github.com/larryluozhang/kimi-mobile/releases/download/v0.6.1-models/model-zipformer-bilingual.zip"
+    const val DEFAULT_VOICE_ENGINE_URL =
+        "https://github.com/larryluozhang/kimi-mobile/releases/download/v0.6.1-models/sherpa-onnx-1.13.7-android-arm64-v8a.zip"
 
     private fun sp(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -145,6 +149,15 @@ object Prefs {
         sp(ctx).edit().putString(KEY_VOICE_MODEL_URL, url.trim()).apply()
     }
 
+    /** 离线引擎（原生 .so）下载地址（可在设置页修改） */
+    fun voiceEngineUrl(ctx: Context): String =
+        sp(ctx).getString(KEY_VOICE_ENGINE_URL, DEFAULT_VOICE_ENGINE_URL)?.trim()
+            ?.ifEmpty { DEFAULT_VOICE_ENGINE_URL } ?: DEFAULT_VOICE_ENGINE_URL
+
+    fun setVoiceEngineUrl(ctx: Context, url: String) {
+        sp(ctx).edit().putString(KEY_VOICE_ENGINE_URL, url.trim()).apply()
+    }
+
     fun model(ctx: Context): String =
         sp(ctx).getString(KEY_MODEL, DEFAULT_MODEL)?.trim()
             ?.ifEmpty { DEFAULT_MODEL } ?: DEFAULT_MODEL
@@ -157,6 +170,13 @@ object Prefs {
 
     fun setLastWorkspaceId(ctx: Context, id: String) {
         sp(ctx).edit().putString(KEY_WORKSPACE, id).apply()
+    }
+
+    /** 上次自动检查更新的时间戳（毫秒）；0 表示从未检查 */
+    fun lastUpdateCheck(ctx: Context): Long = sp(ctx).getLong(KEY_LAST_UPDATE_CHECK, 0)
+
+    fun setLastUpdateCheck(ctx: Context, ts: Long) {
+        sp(ctx).edit().putLong(KEY_LAST_UPDATE_CHECK, ts).apply()
     }
 
     // ---- 会话模式（每会话本地持久化 JSON：sessionId -> 模式集合）----
@@ -192,5 +212,22 @@ object Prefs {
                 .put("goal_objective", p.goalObjective)
         )
         sp(ctx).edit().putString(KEY_SESSION_MODES, all.toString()).apply()
+    }
+
+    // ---- 会话输入草稿（每会话本地持久化 JSON：sessionId -> 草稿文本）----
+    // ChatActivity 离开即销毁，输入框内容随 onPause 存入，回到会话时恢复；空草稿不存。
+    private const val KEY_SESSION_DRAFTS = "session_drafts"
+
+    fun draft(ctx: Context, sessionId: String): String {
+        val raw = sp(ctx).getString(KEY_SESSION_DRAFTS, "{}") ?: "{}"
+        val all = try { JSONObject(raw) } catch (e: Exception) { return "" }
+        return all.optString(sessionId, "")
+    }
+
+    fun saveDraft(ctx: Context, sessionId: String, text: String) {
+        val raw = sp(ctx).getString(KEY_SESSION_DRAFTS, "{}") ?: "{}"
+        val all = try { JSONObject(raw) } catch (e: Exception) { JSONObject() }
+        if (text.isEmpty()) all.remove(sessionId) else all.put(sessionId, text)
+        sp(ctx).edit().putString(KEY_SESSION_DRAFTS, all.toString()).apply()
     }
 }

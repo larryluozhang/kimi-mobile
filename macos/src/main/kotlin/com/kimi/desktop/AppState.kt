@@ -64,6 +64,9 @@ class AppState {
     var settingsOpen by mutableStateOf(false)
     var authError by mutableStateOf<String?>(null)
 
+    /** 启动自动检查发现的新版本（非 null → 主界面上弹更新对话框） */
+    var pendingUpdate by mutableStateOf<AppUpdater.UpdateInfo?>(null)
+
     var profiles by mutableStateOf(Prefs.profiles())
     var activeProfileId by mutableStateOf(Prefs.activeProfile()?.id ?: "")
     var model by mutableStateOf(Prefs.model())
@@ -79,6 +82,8 @@ class AppState {
     var frames = mutableStateListOf<StreamFrame>()
     /** 已发送但未在服务端历史中确认的本地回显（排队中的消息不进历史，刷新时要保留） */
     var pendingEchoes = mutableStateListOf<PendingEcho>()
+    /** 各会话输入框草稿（按 sessionId 隔离，切走再切回时恢复未发送文本） */
+    val drafts = mutableMapOf<String, String>()
     var historyLoading by mutableStateOf(false)
     /** 上一页原始 items 数达到 page_size → 前面可能还有更早历史 */
     var historyHasMore by mutableStateOf(false)
@@ -109,6 +114,9 @@ class AppState {
 
     /** 服务端模型列表（GET /api/v1/models）；空=未加载或拉取失败，UI 回退内置预设 */
     var modelItems = mutableStateListOf<Api.ModelItem>()
+
+    /** 后端类型（GET /api/v1/meta 的 data.server）：kimi/claude/codex；拉取失败或字段缺失保持 kimi */
+    var serverType by mutableStateOf("kimi")
 
     fun server() = Prefs.serverUrl()
     fun token() = Prefs.token()

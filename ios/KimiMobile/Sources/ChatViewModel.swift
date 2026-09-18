@@ -21,6 +21,9 @@ final class ChatViewModel: ObservableObject {
     /// 服务端模型列表（GET /api/v1/models，进会话拉取）；
     /// 拉取失败/为空保持空数组，模型选择 UI 回退 Constants.availableModels 预设
     @Published var serverModels: [ModelItem] = []
+    /// 后端类型（GET /api/v1/meta 的 data.server：kimi 原生 / claude / codex 桥接）；
+    /// 拉取失败/字段缺失保持 "kimi"，仅影响权限模式文案，不阻塞会话加载
+    @Published var serverType = "kimi"
 
     let sessionId: String
     /// 会话标题（/rename 成功后本地刷新，故为 @Published）
@@ -367,8 +370,10 @@ final class ChatViewModel: ObservableObject {
 
     // MARK: - 审批 / 问答 / 中断
 
-    /// 响应审批（approved / rejected）；提交后乐观移除卡片，等下一轮轮询确认
-    func respondApproval(_ item: ApprovalItem, decision: String) {
+    /// 响应审批（approved / rejected）；提交后乐观移除卡片，等下一轮轮询确认。
+    /// 方案审批可随带 selectedLabel（批准时选中的选项 label）或 feedback（驳回附言），空则不带
+    func respondApproval(_ item: ApprovalItem, decision: String,
+                         feedback: String? = nil, selectedLabel: String? = nil) {
         guard !approvalsResponding else { return }
         approvalsResponding = true
         pendingApprovals.removeAll { $0.id == item.id }
@@ -376,7 +381,8 @@ final class ChatViewModel: ObservableObject {
         Task {
             do {
                 try await APIClient.respondApproval(server: server, token: token, sessionId: sid,
-                                                    approvalId: item.id, decision: decision)
+                                                    approvalId: item.id, decision: decision,
+                                                    feedback: feedback, selectedLabel: selectedLabel)
             } catch let e as APIError {
                 handleAPIError(e)
                 loadPending()
@@ -440,6 +446,7 @@ final class ChatViewModel: ObservableObject {
 
     /// 模式状态本地持久化为准（服务端 GET /profile 是空壳）；本地无记录才 GET 兜底。
     func loadProfile() {
+        loadServerMeta() // 后端类型探测：独立任务，失败不阻塞会话加载
         if let local = SessionModeStore.load(sessionId: sessionId) {
             agentConfig = local
             return
@@ -468,6 +475,18 @@ final class ChatViewModel: ObservableObject {
             if let models = try? await APIClient.listModels(server: server, token: token),
                !models.isEmpty {
                 serverModels = models
+            }
+        }
+    }
+
+    /// 拉后端类型（GET /api/v1/meta 的 data.server，进会话时随 loadProfile 调一次）；
+    /// 失败/为空保持 "kimi"（通用文案），不阻塞会话加载
+    private func loadServerMeta() {
+        let server = store.serverURL, token = store.token
+        Task {
+            if let type = try? await APIClient.getMeta(server: server, token: token),
+               !type.isEmpty {
+                serverType = type
             }
         }
     }

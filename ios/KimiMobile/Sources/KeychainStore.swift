@@ -3,7 +3,7 @@ import Security
 
 /// 极简 Keychain 封装：按 profile id 存取 API token（kSecClassGenericPassword）。
 enum KeychainStore {
-    private static let service = "com.example.kimimobile.token"
+    private static let service = "com.kimimobile.app.token"
 
     static func token(for account: String) -> String {
         let query: [String: Any] = [

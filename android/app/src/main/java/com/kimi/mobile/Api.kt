@@ -71,7 +71,13 @@ data class ApprovalItem(
     val toolName: String,
     val action: String,
     val summary: String,
-    val createdAt: String
+    val createdAt: String,
+    /** tool_input_display.kind（如 "plan_review"），缺席为 "" */
+    val displayKind: String = "",
+    /** tool_input_display.plan（计划全文，plan_review 场景），缺席为 "" */
+    val plan: String = "",
+    /** tool_input_display.options（与问答选项同构：id/label/description） */
+    val options: List<QuestionOption> = emptyList()
 )
 
 /** 问答单个选项 */
@@ -201,6 +207,16 @@ object Api {
                 )
             }
             return out
+        }
+    }
+
+    /** 服务端元信息：GET /api/v1/meta → 返回 data 对象原样（含 server 字段标识 kimi/claude/codex 桥）。
+     *  checkAuth 已容忍 data 缺席/非对象（返回空 JSONObject）；旧服务端无此接口时抛异常，由调用方兜底 */
+    fun getMeta(server: String, token: String): JSONObject {
+        val req = builder(server, token, "/api/v1/meta").build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            return checkAuth(resp.code, body)
         }
     }
 
@@ -492,13 +508,28 @@ object Api {
             for (i in 0 until items.length()) {
                 val a = items.getJSONObject(i)
                 val display = a.optJSONObject("tool_input_display")
+                val optArr = display?.optJSONArray("options") ?: JSONArray()
+                val options = ArrayList<QuestionOption>()
+                for (j in 0 until optArr.length()) {
+                    val o = optArr.optJSONObject(j) ?: continue
+                    options.add(
+                        QuestionOption(
+                            id = o.optString("id"),
+                            label = o.optString("label", ""),
+                            description = o.optString("description", "")
+                        )
+                    )
+                }
                 out.add(
                     ApprovalItem(
                         id = a.optString("approval_id"),
                         toolName = a.optString("tool_name", ""),
                         action = a.optString("action", ""),
                         summary = display?.optString("summary", "") ?: "",
-                        createdAt = a.optString("created_at", "")
+                        createdAt = a.optString("created_at", ""),
+                        displayKind = display?.optString("kind", "") ?: "",
+                        plan = display?.optString("plan", "") ?: "",
+                        options = options
                     )
                 )
             }
@@ -506,9 +537,12 @@ object Api {
         }
     }
 
-    /** 响应审批：decision 为 approved / rejected */
-    fun respondApproval(server: String, token: String, sessionId: String, approvalId: String, decision: String) {
+    /** 响应审批：decision 为 approved / rejected；
+     *  feedback（驳回附言）与 selectedLabel（批准时选中的选项 label，plan_review 场景）非空才随请求下发 */
+    fun respondApproval(server: String, token: String, sessionId: String, approvalId: String, decision: String, feedback: String? = null, selectedLabel: String? = null) {
         val payload = JSONObject().put("decision", decision)
+        if (!feedback.isNullOrEmpty()) payload.put("feedback", feedback)
+        if (!selectedLabel.isNullOrEmpty()) payload.put("selected_label", selectedLabel)
         val req = builder(server, token, "/api/v1/sessions/$sessionId/approvals/$approvalId")
             .post(payload.toString().toRequestBody(JSON))
             .build()

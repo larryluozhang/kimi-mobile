@@ -14,8 +14,12 @@ import android.provider.OpenableColumns
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -32,6 +36,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.ListPopupWindow
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -55,6 +60,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private lateinit var tvTitle: TextView
     private lateinit var tvContext: TextView
     private lateinit var tvStatus: TextView
+    private lateinit var statusBar: View
+    private lateinit var btnStop: TextView
     private lateinit var tvLoadEarlier: TextView
     private lateinit var etInput: EditText
     private lateinit var btnMic: ImageButton
@@ -87,7 +94,12 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     /** 当前 turn 的文本帧（frameId -> 已累积文本），保持插入顺序 */
     private val textFrames = LinkedHashMap<String, StringBuilder>()
     private var streamingIndex = -1
+    /** turn 进行中标志；setter 统一联动停止按钮显隐（所有赋值点免逐个处理；视图操作切主线程） */
     @Volatile private var turnActive = false
+        set(value) {
+            field = value
+            if (::btnStop.isInitialized) handler.post { updateStopButton() }
+        }
     /** 已发送但尚未在服务端历史中确认的乐观回显（id 以 "local-" 开头） */
     private val pendingLocal = ArrayList<ChatMsg>()
     /** 工具活动条目：frameId -> adapter 下标；不进历史，turn 结束后随 loadHistory 清除 */
@@ -102,6 +114,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     @Volatile private var loadingEarlier = false
     /** 加载更早消息后触发的刷新保持滚动位置（不跳到底部） */
     private var keepScrollOnNextRefresh = false
+    /** 打开会话后的首次刷新无条件滚到底（空列表 isNearBottom=true 时首帧滚动与首布局竞态可能落空） */
+    private var needInitialScrollToBottom = true
 
     // ---------- 上下文用量 ----------
     /** 已用/上限 token（-1 表示未知）；用量以 WS 快照与 meta.merge 为优先来源，REST 仅兜底；
@@ -119,6 +133,9 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private lateinit var swPlan: Switch
     private lateinit var swSwarm: Switch
     private lateinit var rgPermission: RadioGroup
+    private lateinit var rbYolo: RadioButton
+    /** 服务端类型（GET /api/v1/meta 的 data.server：kimi/claude/codex；缺席或拉取失败按 kimi 处理） */
+    @Volatile private var serverType = "kimi"
     private lateinit var spinnerModel: Spinner
     private lateinit var goalCreate: LinearLayout
     private lateinit var goalActive: LinearLayout
@@ -148,9 +165,14 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         }
         tvContext = findViewById(R.id.tvContext)
         tvStatus = findViewById(R.id.tvStatus)
+        statusBar = findViewById(R.id.statusBar)
+        btnStop = findViewById(R.id.btnStop)
+        btnStop.setOnClickListener { abortTurn() }
         tvLoadEarlier = findViewById(R.id.tvLoadEarlier)
         tvLoadEarlier.setOnClickListener { loadEarlierHistory() }
         etInput = findViewById(R.id.etInput)
+        // 恢复本会话输入草稿（按会话持久化，见 Prefs.draft）
+        etInput.setText(Prefs.draft(this, sessionId))
         btnMic = findViewById(R.id.btnMic)
         btnPick = findViewById(R.id.btnPick)
         btnSend = findViewById(R.id.btnSend)
@@ -177,10 +199,12 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
 
         btnSend.setOnClickListener { sendCurrentText() }
         setupImeInsets()
+        setupSlashCompletion()
         setupVoice()
         setupModeBar()
         loadHistory()
         loadProfile()
+        loadServerMeta()
         loadModels()
     }
 
@@ -224,6 +248,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         approvalsActive = false
         handler.removeCallbacks(approvalPoll)
         stopHistoryPoll()
+        // 保存本会话输入草稿（覆盖 finish/退栈/被杀路径）
+        Prefs.saveDraft(this, sessionId, etInput.text.toString())
     }
 
     private fun pollApprovals() {
@@ -246,6 +272,10 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     private fun showNextApproval(queue: ArrayDeque<ApprovalItem>) {
         val a = queue.removeFirstOrNull() ?: return
         approvalDialogShowing = true
+        if (a.toolName == "ExitPlanMode" || a.displayKind == "plan_review") {
+            showPlanReviewApproval(a, queue)
+            return
+        }
         val detail = a.summary.ifEmpty { a.action }
         AlertDialog.Builder(this)
             .setTitle("工具审批：${a.toolName}")
@@ -256,10 +286,66 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
             .show()
     }
 
-    private fun respondApproval(a: ApprovalItem, decision: String, queue: ArrayDeque<ApprovalItem>) {
+    /** 计划审批（ExitPlanMode / kind=plan_review）：计划全文 + 选项单选 + 驳回附言，
+     *  布局模式与 showNextQuestion 一致（LinearLayout 套 ScrollView，限高 60%） */
+    private fun showPlanReviewApproval(a: ApprovalItem, queue: ArrayDeque<ApprovalItem>) {
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        // 计划全文：代码段沿用消息气泡的等宽渲染；plan 缺席时回退 summary/action
+        val planText = a.plan.ifEmpty { a.summary.ifEmpty { a.action } }
+        container.addView(TextView(this).apply {
+            text = adapter.decorateCode(this@ChatActivity, planText)
+            textSize = 14f
+        })
+        // 服务端给的选项（如官方 ExitPlanMode 的批准方式）：单选，批准时随 selected_label 上报
+        var rgOptions: RadioGroup? = null
+        if (a.options.isNotEmpty()) {
+            val rg = RadioGroup(this)
+            for (opt in a.options) {
+                rg.addView(RadioButton(this).apply {
+                    text = if (opt.description.isEmpty()) opt.label else "${opt.label} — ${opt.description}"
+                    tag = opt.label
+                })
+            }
+            container.addView(rg)
+            rgOptions = rg
+        }
+        val etFeedback = EditText(this).apply { hint = "驳回附言（可选）" }
+        container.addView(etFeedback)
+
+        // 内容区限高可滚动：计划长时底部按钮始终可达
+        val scroll = ScrollView(this).apply { addView(container) }
+        val maxH = (resources.displayMetrics.heightPixels * 0.6).toInt()
+        container.post {
+            scroll.layoutParams = scroll.layoutParams.apply {
+                height = if (container.height > maxH) maxH else ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            scroll.requestLayout()
+        }
+        AlertDialog.Builder(this)
+            .setTitle("计划审批")
+            .setView(scroll)
+            .setPositiveButton("批准") { _, _ ->
+                val selId = rgOptions?.checkedRadioButtonId ?: -1
+                val label = if (selId >= 0) rgOptions?.findViewById<RadioButton>(selId)?.tag?.toString() else null
+                respondApproval(a, "approved", queue, selectedLabel = label)
+            }
+            .setNegativeButton("驳回") { _, _ ->
+                // 无附言且无选项 → 纯驳回（对应官方 "Reject and Exit" 语义）
+                val feedback = etFeedback.text.toString().trim().ifEmpty { null }
+                respondApproval(a, "rejected", queue, feedback = feedback)
+            }
+            .setOnDismissListener { approvalDialogShowing = false }
+            .show()
+    }
+
+    private fun respondApproval(a: ApprovalItem, decision: String, queue: ArrayDeque<ApprovalItem>, feedback: String? = null, selectedLabel: String? = null) {
         Thread {
             try {
-                Api.respondApproval(server(), token(), sessionId, a.id, decision)
+                Api.respondApproval(server(), token(), sessionId, a.id, decision, feedback, selectedLabel)
             } catch (e: Exception) {
                 handler.post {
                     Toast.makeText(this, "审批响应失败：${e.message}", Toast.LENGTH_LONG).show()
@@ -409,6 +495,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
 
     override fun onDestroy() {
         super.onDestroy()
+        slashPopup?.dismiss()
+        slashPopup = null
         speechRecognizer?.destroy()
         speechRecognizer = null
         speechOnnx?.release()
@@ -431,6 +519,7 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         swPlan = findViewById(R.id.swPlan)
         swSwarm = findViewById(R.id.swSwarm)
         rgPermission = findViewById(R.id.rgPermission)
+        rbYolo = findViewById(R.id.rbYolo)
         spinnerModel = findViewById(R.id.spinnerModel)
         goalCreate = findViewById(R.id.goalCreate)
         goalActive = findViewById(R.id.goalActive)
@@ -459,6 +548,23 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                 R.id.rbAuto -> "auto"
                 R.id.rbYolo -> "yolo"
                 else -> "manual"
+            }
+            if (mode == "auto") {
+                // 完全放权高危：每次选中都先弹确认（不记住选择），取消/点外部关闭则回退到原模式
+                val previous = currentModes().permissionMode
+                AlertDialog.Builder(this)
+                    .setTitle("⚠️ 完全放权")
+                    .setMessage("agent 可直接修改、删除文件并执行任意命令，不再逐条征求你的同意。确定开启？")
+                    .setPositiveButton("确定开启") { _, _ ->
+                        updateModes(
+                            JSONObject().put("permission_mode", "auto"),
+                            currentModes().copy(permissionMode = "auto")
+                        )
+                    }
+                    .setNegativeButton("取消") { _, _ -> revertPermissionRadio(previous) }
+                    .setOnCancelListener { revertPermissionRadio(previous) }
+                    .show()
+                return@setOnCheckedChangeListener
             }
             updateModes(JSONObject().put("permission_mode", mode), currentModes().copy(permissionMode = mode))
         }
@@ -492,6 +598,43 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         findViewById<Button>(R.id.btnGoalCancel).setOnClickListener {
             updateModes(JSONObject().put("goal_control", "cancel"), currentModes().copy(goalObjective = ""))
         }
+    }
+
+    /** 取消「完全放权」确认时把权限单选回退到原模式（抑制回调，避免再次触发 POST/弹窗） */
+    private fun revertPermissionRadio(mode: String) {
+        suppressProfileCallbacks = true
+        rgPermission.check(
+            when (mode) {
+                "auto" -> R.id.rbAuto
+                "yolo" -> R.id.rbYolo
+                else -> R.id.rbManual
+            }
+        )
+        suppressProfileCallbacks = false
+    }
+
+    /** yolo（常规自动）的展示文案：按服务端类型补充行为说明；缺席/未知按 kimi 语义 */
+    private fun yoloModeLabel(): String = when (serverType) {
+        "claude" -> "常规自动（只自动接受编辑）"
+        "codex" -> "常规自动（失败才询问）"
+        else -> "常规自动（敏感仍询问）"
+    }
+
+    /** 进会话一次性拉取服务端元信息（data.server 区分 kimi/claude/codex 桥），仅用于权限模式文案；
+     *  失败静默保持 kimi 默认文案，不阻塞进会话 */
+    private fun loadServerMeta() {
+        Thread {
+            try {
+                val meta = Api.getMeta(server(), token())
+                val type = meta.optString("server", "").ifEmpty { "kimi" }
+                handler.post {
+                    serverType = type
+                    rbYolo.text = yoloModeLabel()
+                }
+            } catch (e: Exception) {
+                // 旧服务端无此接口/网络抖动：保持 kimi 默认文案
+            }
+        }.start()
     }
 
     /** 目标暂停/恢复不改变本地目标状态，仅下发控制指令 */
@@ -637,9 +780,10 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         if (p.swarmMode) parts.add("Swarm")
         parts.add(
             when (p.permissionMode) {
-                "auto" -> "权限·自动"
-                "yolo" -> "权限·YOLO"
-                else -> "权限·手动"
+                "auto" -> "权限·完全放权（危险）"
+                "yolo" -> "权限·常规自动"
+                "manual" -> "权限·每步确认"
+                else -> "权限·${p.permissionMode}"
             }
         )
         parts.add(p.model.removePrefix("kimi-code/").ifEmpty { "默认模型" })
@@ -773,6 +917,11 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
                     val atBottom = isNearBottom()
                     adapter.setAll(msgs)
                     when {
+                        // 首次进入会话：无条件滚到底，规避首帧 scrollToPosition 与首布局竞态落空后用户被钉在顶部
+                        needInitialScrollToBottom -> {
+                            needInitialScrollToBottom = false
+                            scrollToBottom()
+                        }
                         keepScrollOnNextRefresh -> {
                             // 「加载更早消息」触发的前插刷新：保持当前阅读位置，不跳到底部
                             keepScrollOnNextRefresh = false
@@ -993,6 +1142,8 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
         val imageId = pendingImageFileId
         if (text.isEmpty() && imageId.isNullOrEmpty()) return
         etInput.setText("")
+        // 发送成功后清空本会话草稿
+        Prefs.saveDraft(this, sessionId, "")
         // 斜杠命令拦截：未命中的 / 开头文本按普通 prompt 发送（与官方一致）
         if (text.startsWith("/") && handleSlash(text)) return
         val local = ChatMsg(
@@ -1039,6 +1190,74 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
     }
 
     // ---------- 斜杠命令 ----------
+
+    /** 命令补全候选：命令名 + 一行说明（与 handleSlash 支持的命令保持一致） */
+    private val slashCommands = listOf(
+        "/compact" to "压缩当前会话历史",
+        "/archive" to "归档会话",
+        "/fork" to "分叉当前会话",
+        "/rename" to "重命名会话（/rename 新标题）",
+        "/abort" to "中止本轮执行",
+        "/stop" to "同 /abort",
+        "/new" to "新建会话",
+        "/help" to "命令帮助",
+    )
+    /** "/" 命令补全弹窗（锚定在输入框上方，无候选时收起） */
+    private var slashPopup: ListPopupWindow? = null
+
+    /** 输入 "/" 时在输入框上方弹出命令补全列表：前缀过滤（大小写不敏感），选中填入 "/cmd " 并把光标移到末尾 */
+    private fun setupSlashCompletion() {
+        val cmdAdapter = object : ArrayAdapter<Pair<String, String>>(this, R.layout.item_slash_command) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = convertView ?: LayoutInflater.from(parent.context)
+                    .inflate(R.layout.item_slash_command, parent, false)
+                val (name, desc) = getItem(position)!!
+                v.findViewById<TextView>(R.id.tvSlashName).text = name
+                v.findViewById<TextView>(R.id.tvSlashDesc).text = desc
+                return v
+            }
+        }
+        val popup = ListPopupWindow(this)
+        popup.anchorView = etInput
+        popup.setAdapter(cmdAdapter)
+        popup.setOnItemClickListener { _, _, position, _ ->
+            val name = cmdAdapter.getItem(position)?.first ?: return@setOnItemClickListener
+            // 补全为 "/cmd "（带尾随空格，/rename 后可直接接标题），光标移到末尾
+            etInput.setText("$name ")
+            etInput.setSelection(etInput.text.length)
+            popup.dismiss()
+        }
+        slashPopup = popup
+        etInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                updateSlashPopup(cmdAdapter, popup, s?.toString() ?: "")
+            }
+        })
+    }
+
+    /** 仅当文本以 "/" 开头且尚未输入空格（仍在敲命令 token）时按前缀过滤弹出；
+     *  无候选、不再以 "/" 开头或已输入空格（含发送清空）时收起 */
+    private fun updateSlashPopup(
+        cmdAdapter: ArrayAdapter<Pair<String, String>>,
+        popup: ListPopupWindow,
+        text: String
+    ) {
+        val filtered = if (text.startsWith("/") && !text.contains(' ') && !text.contains('\n')) {
+            slashCommands.filter { it.first.startsWith(text, ignoreCase = true) }
+        } else {
+            emptyList()
+        }
+        if (filtered.isEmpty()) {
+            popup.dismiss()
+            return
+        }
+        cmdAdapter.clear()
+        cmdAdapter.addAll(filtered)
+        popup.width = etInput.width
+        popup.show()
+    }
 
     /** 命中内置命令返回 true（已处理）；未命中返回 false，由调用方当普通 prompt 发送 */
     private fun handleSlash(text: String): Boolean {
@@ -1263,7 +1482,7 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
             btnMic.visibility = View.GONE
             return
         }
-        val onnxOk = SpeechOnnx.isModelAvailable(this)
+        val onnxOk = onnxOfflineReady()
         val sysOk = SpeechRecognizer.isRecognitionAvailable(this)
         val usable = when (Prefs.voiceEngine(this)) {
             // onnx 强制模式保留入口：模型未下载时点击提示去设置页下载
@@ -1304,20 +1523,24 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
             hideStatus()
             return
         }
-        // onnx 强制模式模型未下载：提示去设置页；auto 模式则由 useOnnxEngine 静默回退系统识别
-        if (Prefs.voiceEngine(this) == "onnx" && !SpeechOnnx.isModelAvailable(this)) {
-            Toast.makeText(this, "离线模型未下载，请先到设置页下载离线模型", Toast.LENGTH_LONG).show()
+        // onnx 强制模式模型/引擎未下载：提示去设置页；auto 模式则由 useOnnxEngine 静默回退系统识别
+        if (Prefs.voiceEngine(this) == "onnx" && !onnxOfflineReady()) {
+            Toast.makeText(this, "离线模型/引擎未下载，请先到设置页下载", Toast.LENGTH_LONG).show()
             return
         }
         if (useOnnxEngine()) startOnnxListening() else startListening()
     }
 
-    /** 引擎决策：onnx 强制离线（模型缺失返回 false）；system 强制系统；auto 离线优先 */
+    /** 离线语音就绪：模型 4 件套 + 原生引擎 4 个 .so 均已下载（引擎缺失与模型缺失同等处理） */
+    private fun onnxOfflineReady(): Boolean =
+        SpeechOnnx.isModelAvailable(this) && NativeEngine.isEngineAvailable(this)
+
+    /** 引擎决策：onnx 强制离线（模型/引擎缺失返回 false）；system 强制系统；auto 离线优先 */
     private fun useOnnxEngine(): Boolean {
         return when (Prefs.voiceEngine(this)) {
             "system" -> false
-            "onnx" -> SpeechOnnx.isModelAvailable(this)
-            else -> SpeechOnnx.isModelAvailable(this)
+            "onnx" -> onnxOfflineReady()
+            else -> onnxOfflineReady()
         }
     }
 
@@ -1644,18 +1867,49 @@ class ChatActivity : AppCompatActivity(), WsClient.Listener {
 
     private fun showStatus(text: String) {
         tvStatus.text = text
-        tvStatus.visibility = View.VISIBLE
+        statusBar.visibility = View.VISIBLE
+        updateStopButton()
     }
 
     private fun hideStatus() {
-        tvStatus.visibility = View.GONE
+        statusBar.visibility = View.GONE
+    }
+
+    /** 停止按钮仅在 turn 进行中可见（与 macOS/iOS 的 busy 停止按钮对齐） */
+    private fun updateStopButton() {
+        btnStop.visibility = if (turnActive) View.VISIBLE else View.GONE
+    }
+
+    /** 中止当前 turn：POST :abort；中止中临时禁用按钮防重复点击，结果由 WS turn 状态回推 */
+    private fun abortTurn() {
+        btnStop.isEnabled = false
+        Thread {
+            try {
+                Api.sessionAction(server(), token(), sessionId, "abort")
+                handler.post { Toast.makeText(this, "已发送中止指令", Toast.LENGTH_SHORT).show() }
+            } catch (e: Exception) {
+                handler.post { Toast.makeText(this, "中止失败：${e.message}", Toast.LENGTH_LONG).show() }
+            } finally {
+                handler.post { btnStop.isEnabled = true }
+            }
+        }.start()
     }
 
     private fun scrollToBottom() {
         if (messages.isEmpty()) return
         val last = messages.size - 1
         // post 延迟到新 item 完成布局测量后再滚，避免落点不足导致最后一条半截留在列表下边界外
-        recycler.post { recycler.scrollToPosition(last) }
+        recycler.post {
+            recycler.scrollToPosition(last)
+            // 再补一帧兜底：scrollToPosition 与首布局竞态可能未贴底，
+            // 末项底边超出可视区（含 paddingBottom）时按差值补滚
+            recycler.post {
+                val lm = recycler.layoutManager as? LinearLayoutManager ?: return@post
+                val v = lm.findViewByPosition(last) ?: return@post
+                val visibleBottom = recycler.height - recycler.paddingBottom
+                if (v.bottom > visibleBottom) recycler.scrollBy(0, v.bottom - visibleBottom)
+            }
+        }
     }
 
     /** 用户是否停留在底部附近（2 条容差）：轮询刷新/流式新帧只在底部时跟随到底 */

@@ -14,14 +14,12 @@
 		2599F24B3E9665B047FAB179 /* SpeechInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D362F572FADE1EA108C1DD8 /* SpeechInput.swift */; };
 		25FDEC6D1E96C5E4416E989B /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA79EF2AFD5486027DF3843 /* KeychainStore.swift */; };
 		29A43AA1D9EE23FE7D462EAE /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7227B01AE4216DE09C226F6 /* Models.swift */; };
+		4722F2E269318C17126E82C6 /* AppUpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EFD7A9764F2DB26A73622CB /* AppUpdateChecker.swift */; };
 		58D8B102D1A7B7A412FC5AFD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1027D597D8F8230B1650A91C /* SettingsView.swift */; };
-		5EA29D4D42BADD286F8AA6AC /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = A1E1C2FFE327BD5B863AD459 /* ZIPFoundation */; };
-		768FDE806FEC4DE53565AF71 /* ModelDownload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C35AE5B10B0AD4F3AF4E64 /* ModelDownload.swift */; };
-		76F66B4C489970E3192CF3B2 /* SpeechOnnx.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366C66205E99213F1EAA6408 /* SpeechOnnx.swift */; };
 		7DD309845179733E41BA5BE7 /* GateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD9A589F9821AEEA5E233B6 /* GateView.swift */; };
 		89F4B0632DB5644A99FECF92 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1B40782E3B28A363D64A08 /* MainView.swift */; };
-		A0009B54109BE436EE8FD523 /* sherpa-onnx in Frameworks */ = {isa = PBXBuildFile; productRef = 646327FF3DB7498009D1E052 /* sherpa-onnx */; };
 		ADFA9B579CA360F4BC08EAAD /* WSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 921F7B36AF1CD434F1CA2978 /* WSService.swift */; };
+		B91DF6E6F24528D3341F8720 /* ServerImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B40458E5C557DC901130507 /* ServerImporter.swift */; };
 		CB0434F1527FFE20CB2E68C4 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF51CBB8C2453963915BCD9 /* ChatView.swift */; };
 		CBE1496D5109D7D1F9397737 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BF6DFA010558839B89DEA9 /* ChatViewModel.swift */; };
 		DFDBDDF877F42BB6B8800C0F /* MarkdownContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE80A521554AF0D1A27A0832 /* MarkdownContent.swift */; };
@@ -33,11 +31,10 @@
 /* Begin PBXFileReference section */
 		0F34BF11BE82579FFF28E49E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		1027D597D8F8230B1650A91C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		11C35AE5B10B0AD4F3AF4E64 /* ModelDownload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownload.swift; sourceTree = "<group>"; };
 		22A3DC8B03DDBFA259D35BA5 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
-		366C66205E99213F1EAA6408 /* SpeechOnnx.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechOnnx.swift; sourceTree = "<group>"; };
 		3D13A3D0A130413D78ABD8A7 /* KimiMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KimiMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C1B40782E3B28A363D64A08 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
+		4EFD7A9764F2DB26A73622CB /* AppUpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateChecker.swift; sourceTree = "<group>"; };
 		7D362F572FADE1EA108C1DD8 /* SpeechInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechInput.swift; sourceTree = "<group>"; };
 		7EF934FCCBB2A4B85FA9595E /* RemoteImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImage.swift; sourceTree = "<group>"; };
 		8AA79EF2AFD5486027DF3843 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
@@ -45,6 +42,7 @@
 		8F5A77813BA8BE1CDEA4FF91 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		921F7B36AF1CD434F1CA2978 /* WSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WSService.swift; sourceTree = "<group>"; };
 		95E2F574DC08A594ED317DBE /* ModeBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeBarView.swift; sourceTree = "<group>"; };
+		9B40458E5C557DC901130507 /* ServerImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerImporter.swift; sourceTree = "<group>"; };
 		9DF51CBB8C2453963915BCD9 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		A7227B01AE4216DE09C226F6 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		BAC03243C484E4F0A60D3F36 /* KimiMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiMobileApp.swift; sourceTree = "<group>"; };
@@ -52,18 +50,6 @@
 		ECD9A589F9821AEEA5E233B6 /* GateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GateView.swift; sourceTree = "<group>"; };
 		FE80A521554AF0D1A27A0832 /* MarkdownContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownContent.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFrameworksBuildPhase section */
-		84BCFF196B0BFC67BE0C8B11 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A0009B54109BE436EE8FD523 /* sherpa-onnx in Frameworks */,
-				5EA29D4D42BADD286F8AA6AC /* ZIPFoundation in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		337CBCB5402CAF5C21301F28 /* KimiMobile */ = {
@@ -78,6 +64,7 @@
 			isa = PBXGroup;
 			children = (
 				22A3DC8B03DDBFA259D35BA5 /* APIClient.swift */,
+				4EFD7A9764F2DB26A73622CB /* AppUpdateChecker.swift */,
 				9DF51CBB8C2453963915BCD9 /* ChatView.swift */,
 				C1BF6DFA010558839B89DEA9 /* ChatViewModel.swift */,
 				ECD9A589F9821AEEA5E233B6 /* GateView.swift */,
@@ -86,13 +73,12 @@
 				4C1B40782E3B28A363D64A08 /* MainView.swift */,
 				FE80A521554AF0D1A27A0832 /* MarkdownContent.swift */,
 				95E2F574DC08A594ED317DBE /* ModeBarView.swift */,
-				11C35AE5B10B0AD4F3AF4E64 /* ModelDownload.swift */,
 				A7227B01AE4216DE09C226F6 /* Models.swift */,
 				8D4FE5D2EE3BC811A45FC32E /* ProfileStore.swift */,
 				7EF934FCCBB2A4B85FA9595E /* RemoteImage.swift */,
+				9B40458E5C557DC901130507 /* ServerImporter.swift */,
 				1027D597D8F8230B1650A91C /* SettingsView.swift */,
 				7D362F572FADE1EA108C1DD8 /* SpeechInput.swift */,
-				366C66205E99213F1EAA6408 /* SpeechOnnx.swift */,
 				0F34BF11BE82579FFF28E49E /* Theme.swift */,
 				921F7B36AF1CD434F1CA2978 /* WSService.swift */,
 			);
@@ -126,7 +112,6 @@
 			buildPhases = (
 				DA51F4A36D0B8ECB390FF853 /* Sources */,
 				FC4EA46922ABAFA92FDDCE5E /* Resources */,
-				84BCFF196B0BFC67BE0C8B11 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -134,8 +119,6 @@
 			);
 			name = KimiMobile;
 			packageProductDependencies = (
-				646327FF3DB7498009D1E052 /* sherpa-onnx */,
-				A1E1C2FFE327BD5B863AD459 /* ZIPFoundation */,
 			);
 			productName = KimiMobile;
 			productReference = 3D13A3D0A130413D78ABD8A7 /* KimiMobile.app */;
@@ -165,10 +148,6 @@
 			);
 			mainGroup = CE7478942280F50060F13A56;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				74D13E750952F9CCB546C47D /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
-				EF0747BD5146C9DEF8BD28FA /* XCRemoteSwiftPackageReference "sherpa-onnx" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A42B4E25884617EB6B3CE892 /* Products */;
 			projectDirPath = "";
@@ -196,6 +175,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E981F006CB47F6DF6F96E766 /* APIClient.swift in Sources */,
+				4722F2E269318C17126E82C6 /* AppUpdateChecker.swift in Sources */,
 				CB0434F1527FFE20CB2E68C4 /* ChatView.swift in Sources */,
 				CBE1496D5109D7D1F9397737 /* ChatViewModel.swift in Sources */,
 				7DD309845179733E41BA5BE7 /* GateView.swift in Sources */,
@@ -204,13 +184,12 @@
 				89F4B0632DB5644A99FECF92 /* MainView.swift in Sources */,
 				DFDBDDF877F42BB6B8800C0F /* MarkdownContent.swift in Sources */,
 				F0E54E7F88EBB5036E1580A7 /* ModeBarView.swift in Sources */,
-				768FDE806FEC4DE53565AF71 /* ModelDownload.swift in Sources */,
 				29A43AA1D9EE23FE7D462EAE /* Models.swift in Sources */,
 				E03BF899E77063DFD3BBDDE7 /* ProfileStore.swift in Sources */,
 				0D58F2588892BEDA1A182C6A /* RemoteImage.swift in Sources */,
+				B91DF6E6F24528D3341F8720 /* ServerImporter.swift in Sources */,
 				58D8B102D1A7B7A412FC5AFD /* SettingsView.swift in Sources */,
 				2599F24B3E9665B047FAB179 /* SpeechInput.swift in Sources */,
-				76F66B4C489970E3192CF3B2 /* SpeechOnnx.swift in Sources */,
 				1C73F2B08D638DD108194415 /* Theme.swift in Sources */,
 				ADFA9B579CA360F4BC08EAAD /* WSService.swift in Sources */,
 			);
@@ -224,7 +203,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = KimiMobile/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -232,8 +211,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.7.3;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.kimimobile;
+				MARKETING_VERSION = 0.7.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kimimobile.app;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -244,7 +223,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = KimiMobile/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -252,8 +231,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.7.3;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.kimimobile;
+				MARKETING_VERSION = 0.7.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kimimobile.app;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -406,38 +385,6 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		74D13E750952F9CCB546C47D /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/weichsel/ZIPFoundation";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.19;
-			};
-		};
-		EF0747BD5146C9DEF8BD28FA /* XCRemoteSwiftPackageReference "sherpa-onnx" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/k2-fsa/sherpa-onnx";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.13.7;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		646327FF3DB7498009D1E052 /* sherpa-onnx */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = EF0747BD5146C9DEF8BD28FA /* XCRemoteSwiftPackageReference "sherpa-onnx" */;
-			productName = "sherpa-onnx";
-		};
-		A1E1C2FFE327BD5B863AD459 /* ZIPFoundation */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 74D13E750952F9CCB546C47D /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
-			productName = ZIPFoundation;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 27CBD9598F05C0DADEDF64F8 /* Project object */;
 }

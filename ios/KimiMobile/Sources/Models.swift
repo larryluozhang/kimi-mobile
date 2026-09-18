@@ -49,6 +49,17 @@ struct ApprovalItem: Identifiable, Equatable {
     let toolName: String
     let action: String
     let summary: String // tool_input_display.summary
+    /// tool_input_display.kind（如 "plan_review"；缺省 ""）
+    var displayKind: String = ""
+    /// 方案正文（tool_input_display.plan，方案审批 sheet 用 MarkdownContent 渲染）
+    var plan: String = ""
+    /// 方案选项（tool_input_display.options，批准时随 selected_label 上报；复用问卷选项模型）
+    var options: [QuestionOption] = []
+
+    /// 是否方案审批（ExitPlanMode 工具或 display kind=plan_review），走 sheet 展示完整方案
+    var isPlanReview: Bool {
+        toolName == "ExitPlanMode" || displayKind == "plan_review"
+    }
 }
 
 /// 待答问卷（GET /sessions/{id}/questions?status=pending 的 data.items[] 元素）
@@ -150,6 +161,29 @@ enum SessionModeStore {
     static func save(sessionId: String, config: AgentConfig) {
         var all = UserDefaults.standard.dictionary(forKey: key) ?? [:]
         all[sessionId] = config.toDict()
+        UserDefaults.standard.set(all, forKey: key)
+    }
+}
+
+/// 会话输入草稿本地持久化：UserDefaults 存字典（sessionId -> 草稿文本）。
+/// 每次进会话会 push 新 ChatView，返回即销毁，草稿以本地记录为准；
+/// 空草稿直接移除对应 key，不存空串。
+enum SessionDraftStore {
+    private static let key = "session_drafts_v1"
+
+    static func load(sessionId: String) -> String {
+        guard let all = UserDefaults.standard.dictionary(forKey: key),
+              let draft = all[sessionId] as? String else { return "" }
+        return draft
+    }
+
+    static func save(sessionId: String, draft: String) {
+        var all = UserDefaults.standard.dictionary(forKey: key) ?? [:]
+        if draft.isEmpty {
+            all.removeValue(forKey: sessionId)
+        } else {
+            all[sessionId] = draft
+        }
         UserDefaults.standard.set(all, forKey: key)
     }
 }

@@ -15,16 +15,17 @@ final class ProfileStore: ObservableObject {
     @Published var voiceEnabled: Bool {
         didSet { defaults.set(voiceEnabled, forKey: Keys.voice) }
     }
-    /// 语音识别引擎：auto（默认，离线模型可用则优先）/ onnx（仅离线）/ system（仅系统识别）
-    @Published var voiceEngine: String {
-        didSet { defaults.set(voiceEngine, forKey: Keys.voiceEngine) }
-    }
     @Published var model: String {
         didSet { defaults.set(model, forKey: Keys.model) }
     }
     var lastWorkspaceId: String? {
         get { defaults.string(forKey: Keys.workspace) }
         set { defaults.set(newValue, forKey: Keys.workspace) }
+    }
+    /// 上次自动检查更新的时间（启动时 24h 节流用）
+    var lastUpdateCheck: Date? {
+        get { defaults.object(forKey: Keys.updateCheck) as? Date }
+        set { defaults.set(newValue, forKey: Keys.updateCheck) }
     }
 
     private let defaults = UserDefaults.standard
@@ -33,15 +34,15 @@ final class ProfileStore: ObservableObject {
         static let profiles = "host_profiles"
         static let active = "active_profile_id"
         static let voice = "voice_enabled"
-        static let voiceEngine = "voice_engine"
         static let model = "model"
         static let workspace = "last_workspace_id"
+        static let updateCheck = "last_update_check"
         static let seeded = "seeded_v3"
     }
 
     static let presets: [HostProfile] = [
         HostProfile(id: "preset-server", name: "我的服务器", url: "http://127.0.0.1:58627"),
-        HostProfile(id: "preset-mac", name: "我的 Mac", url: "http://127.0.0.1:58627"),
+        HostProfile(id: "preset-mac", name: "Mac 笔记本", url: "http://100.73.220.23:58627"),
         HostProfile(id: "preset-backup", name: "备用主机", url: "http://127.0.0.1:58627")
     ]
 
@@ -68,8 +69,6 @@ final class ProfileStore: ObservableObject {
         profiles = loaded
         activeProfileId = defaults.string(forKey: Keys.active) ?? loaded.first?.id
         voiceEnabled = defaults.object(forKey: Keys.voice) as? Bool ?? true
-        let engine = defaults.string(forKey: Keys.voiceEngine) ?? "auto"
-        voiceEngine = ["auto", "onnx", "system"].contains(engine) ? engine : "auto"
         let m = defaults.string(forKey: Keys.model) ?? ""
         model = m.trimmingCharacters(in: .whitespaces).isEmpty ? Constants.defaultModel : m
     }
@@ -105,6 +104,20 @@ final class ProfileStore: ObservableObject {
         KeychainStore.setToken(token, for: profile.id)
         if activeProfileId == nil { activeProfileId = profile.id }
         revision += 1
+    }
+
+    /// 导入服务器建档：同 URL 已有档案则更新名称/token（不新建），否则新建 import-<时间戳> 档案；均设为当前主机
+    @discardableResult
+    func importServer(name: String, url: String, token: String) -> HostProfile {
+        let profile: HostProfile
+        if let existing = profiles.first(where: { $0.url == url }) {
+            profile = HostProfile(id: existing.id, name: name, url: url)
+        } else {
+            profile = HostProfile(id: "import-\(Int(Date().timeIntervalSince1970))", name: name, url: url)
+        }
+        upsert(profile, token: token)
+        setActive(profile)
+        return profile
     }
 
     func delete(_ profile: HostProfile) {

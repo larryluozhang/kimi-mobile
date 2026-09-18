@@ -65,10 +65,14 @@ suspend fun loadModelList(state: AppState) {
     }
 }
 
-private fun permissionLabel(p: String) = when (p) {
-    "manual" -> "手动"
-    "auto" -> "自动"
-    "yolo" -> "YOLO"
+private fun permissionLabel(p: String, serverType: String = "kimi") = when (p) {
+    "manual" -> "每步确认"
+    "auto" -> "完全放权（危险）"
+    "yolo" -> when (serverType) {
+        "claude" -> "常规自动（只自动接受编辑）"
+        "codex" -> "常规自动（失败才询问）"
+        else -> "常规自动（敏感仍询问）"
+    }
     else -> p
 }
 
@@ -103,6 +107,7 @@ fun ModeBar(state: AppState, scope: CoroutineScope, sessionId: String) {
     var permMenu by remember { mutableStateOf(false) }
     var modelMenu by remember { mutableStateOf(false) }
     var goalDialog by remember { mutableStateOf(false) }
+    var autoWarn by remember { mutableStateOf(false) }
 
     Surface(color = MaterialTheme.colorScheme.surface) {
         Row(
@@ -144,16 +149,18 @@ fun ModeBar(state: AppState, scope: CoroutineScope, sessionId: String) {
             // 权限模式
             Box {
                 OutlinedButton(onClick = { permMenu = true }) {
-                    Text("权限:${permissionLabel(profile.permissionMode)}", fontSize = 12.sp)
+                    Text("权限:${permissionLabel(profile.permissionMode, state.serverType)}", fontSize = 12.sp)
                 }
                 DropdownMenu(expanded = permMenu, onDismissRequest = { permMenu = false }) {
                     for (p in PERMISSION_OPTIONS) {
                         DropdownMenuItem(
-                            text = { Text("${permissionLabel(p)}（$p）") },
+                            text = { Text("${permissionLabel(p, state.serverType)}（$p）") },
                             onClick = {
                                 permMenu = false
                                 if (p != profile.permissionMode) {
-                                    patchProfile(state, scope, sessionId, JSONObject().put("permission_mode", p), profile.copy(permissionMode = p))
+                                    // 完全放权每次都要先弹危险确认，确定后才下发
+                                    if (p == "auto") autoWarn = true
+                                    else patchProfile(state, scope, sessionId, JSONObject().put("permission_mode", p), profile.copy(permissionMode = p))
                                 }
                             }
                         )
@@ -211,6 +218,24 @@ fun ModeBar(state: AppState, scope: CoroutineScope, sessionId: String) {
                 }
             }
         }
+    }
+
+    if (autoWarn) {
+        AlertDialog(
+            onDismissRequest = { autoWarn = false },
+            title = { Text("⚠️ 完全放权") },
+            text = { Text("agent 可直接修改、删除文件并执行任意命令，不再逐条征求你的同意。确定开启？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        autoWarn = false
+                        val profile = state.sessionProfile ?: return@Button
+                        patchProfile(state, scope, sessionId, JSONObject().put("permission_mode", "auto"), profile.copy(permissionMode = "auto"))
+                    }
+                ) { Text("确定开启") }
+            },
+            dismissButton = { TextButton(onClick = { autoWarn = false }) { Text("取消") } }
+        )
     }
 
     if (goalDialog) {

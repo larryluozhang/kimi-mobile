@@ -1,5 +1,6 @@
 package com.kimi.desktop
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -25,6 +26,11 @@ fun main(args: Array<String>) {
         }
         val icon = painterResource("icon.png")
 
+        // 启动自动检查更新（24h 一次；失败/无更新静默，发现新版本在主界面弹框）
+        LaunchedEffect(Unit) {
+            AppUpdater.autoCheckOnLaunch { info -> state.pendingUpdate = info }
+        }
+
     Window(
         onCloseRequest = {
             state.stopWs()
@@ -38,6 +44,9 @@ fun main(args: Array<String>) {
             when (state.screen) {
                 Screen.Gate -> GateScreen(state)
                 Screen.Main -> MainScreen(state)
+            }
+            state.pendingUpdate?.let { info ->
+                UpdateDialog(info, onDismiss = { state.pendingUpdate = null })
             }
         }
     }

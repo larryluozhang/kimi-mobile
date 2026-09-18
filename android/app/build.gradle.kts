@@ -20,10 +20,22 @@ android {
         applicationId = "com.kimi.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 25
-        versionName = "0.7.3"
+        versionCode = 26
+        versionName = "0.7.4"
         // sherpa-onnx 原生库四 ABI 约 126MB；目标设备全是 arm64，只打 arm64-v8a
         ndk { abiFilters += listOf("arm64-v8a") }
+    }
+
+    // sherpa-onnx 的 4 个原生库（约 30MB）不打进 APK，改为运行时按需下载（见 NativeEngine.kt）
+    packagingOptions {
+        jniLibs {
+            excludes += setOf(
+                "lib/arm64-v8a/libonnxruntime.so",
+                "lib/arm64-v8a/libsherpa-onnx-c-api.so",
+                "lib/arm64-v8a/libsherpa-onnx-cxx-api.so",
+                "lib/arm64-v8a/libsherpa-onnx-jni.so",
+            )
+        }
     }
 
     buildFeatures {

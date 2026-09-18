@@ -38,10 +38,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-/** 待审批卡片：显示工具名/动作/摘要，批准或拒绝（POST 成功后 agent 恢复运行） */
+/** 待审批卡片：显示工具名/动作/摘要，批准或拒绝（POST 成功后 agent 恢复运行）。
+ * 计划审批（ExitPlanMode / kind=plan_review）额外展示计划全文、可选项单选与驳回附言。 */
 @Composable
 fun ApprovalCard(state: AppState, scope: CoroutineScope, sessionId: String, item: Api.ApprovalItem) {
     var submitting by remember(item.id) { mutableStateOf(false) }
+    val isPlanReview = item.toolName == "ExitPlanMode" || item.displayKind == "plan_review"
+    var selectedOption by remember(item.id) { mutableStateOf<Api.QuestionOption?>(null) }
+    var feedback by remember(item.id) { mutableStateOf("") }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -63,6 +67,55 @@ fun ApprovalCard(state: AppState, scope: CoroutineScope, sessionId: String, item
                 Spacer(Modifier.height(4.dp))
                 Text(item.summary, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
             }
+            if (isPlanReview) {
+                if (item.plan.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    // 计划全文限高可滚动：内容长时底部批准/拒绝按钮始终可达
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(item.plan, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+                if (item.options.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    for (o in item.options) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .selectable(
+                                    selected = selectedOption?.id == o.id,
+                                    onClick = { selectedOption = o }
+                                )
+                                .padding(vertical = 2.dp)
+                        ) {
+                            RadioButton(
+                                selected = selectedOption?.id == o.id,
+                                onClick = { selectedOption = o }
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Column {
+                                Text(o.label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                                if (o.description.isNotEmpty()) {
+                                    Text(o.description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = feedback,
+                    onValueChange = { feedback = it },
+                    placeholder = { Text("驳回附言（可选）", fontSize = 13.sp) },
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
@@ -72,7 +125,7 @@ fun ApprovalCard(state: AppState, scope: CoroutineScope, sessionId: String, item
                         scope.launch {
                             try {
                                 withContext(Dispatchers.IO) {
-                                    Api.respondApproval(state.server(), state.token(), sessionId, item.id, approved = true)
+                                    Api.respondApproval(state.server(), state.token(), sessionId, item.id, approved = true, selectedLabel = selectedOption?.label ?: "")
                                 }
                                 AppLog.log("APPROVAL", "已批准 ${item.toolName} (${item.id})")
                                 state.pendingApprovals.removeAll { it.id == item.id }
@@ -96,7 +149,7 @@ fun ApprovalCard(state: AppState, scope: CoroutineScope, sessionId: String, item
                         scope.launch {
                             try {
                                 withContext(Dispatchers.IO) {
-                                    Api.respondApproval(state.server(), state.token(), sessionId, item.id, approved = false)
+                                    Api.respondApproval(state.server(), state.token(), sessionId, item.id, approved = false, feedback = feedback.trim())
                                 }
                                 AppLog.log("APPROVAL", "已拒绝 ${item.toolName} (${item.id})")
                                 state.pendingApprovals.removeAll { it.id == item.id }
